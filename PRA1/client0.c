@@ -98,15 +98,30 @@ void read_parameters(char fn[64]) {
 
 
 int main(int argc, char *argv[]) {
-
     struct hostent *ent;
     ent = gethostbyname(config_parameters.server_name);
+    char *fn;
 
-    char fn[64] = "client.cfg";
+    switch(*argv[1]) {
+        case 'c':
+            if (argv[2] != NULL) { 
+                fn = argv[2];
+            } else {
+                fn = "client.cfg";
+            }
+            break;
 
+        case 'd':
+            printf("DEBUG TIME!! \n");
+            break;
+
+        default:
+            break;
+    }
+    
     read_parameters(fn);
 
-    for(int i = 0; i <4; i++){         
+    for(int i = 0; i < 4; i++){         
         printf("%s-%i-%c\n",config_parameters.elements[i].magnitud, config_parameters.elements[i].ordinal,config_parameters.elements[i].tipus);     
     }
 
