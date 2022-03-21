@@ -14,35 +14,33 @@
 
 char buffer[BUFFSIZE + 2];
 
-struct Config config_parameters;
-
-typedef struct Element {
+struct element {
     char magnitud[3];
     int ordinal;
     char tipus;
-} Element;
+};
 
-typedef struct Config {
+struct config {
     char id[10];
-    struct Element elements[5];
+    struct element elements[5];
     int local_TCP;
     char server_name[10];
     int server_UDP;
-} Config;
+};
 
-void save_elements(char * elements, int i) {
+void save_elements(char * elements, int i, struct config *config_parameters) {
     char * element;
     element = strtok(elements, "-");
-    strcpy(config_parameters.elements[i].magnitud, element);
+    strcpy(config_parameters->elements[i].magnitud, element);
 
     element = strtok(NULL, "-");
-    config_parameters.elements[i].ordinal = atoi(element);
+    config_parameters->elements[i].ordinal = atoi(element);
 
     element = strtok(NULL, "-");
-    config_parameters.elements[i].tipus = element[0];
+    config_parameters->elements[i].tipus = element[0];
 }
 
-void read_elements(char * values) {
+void read_elements(char * values, struct config *config_parameters) {
     char * elements[5];
     int i = 0;
     elements[i] = strtok(values, ";");
@@ -52,11 +50,11 @@ void read_elements(char * values) {
     } while ((elements[i] = strtok(NULL, ";")) != NULL);
 
     for(int j = 0; j < i; j++) {
-        save_elements(elements[j], j);
+        save_elements(elements[j], j, config_parameters);
     }
 }
 
-void read_parameters(char fn[64]) {
+void read_parameters(char fn[64], struct config *config_parameters) {
     FILE *file = fopen(fn, "r");
     char values[64];
     int line = 1;
@@ -69,23 +67,23 @@ void read_parameters(char fn[64]) {
 
         switch (line) {
             case 1:
-                strcpy(config_parameters.id, values);
+                strcpy(config_parameters->id, values);
                 break;
             
             case 2:
-                read_elements(values);
+                read_elements(values, config_parameters);
                 break;
             
             case 3:
-                config_parameters.local_TCP = atoi(values);
+                config_parameters->local_TCP = atoi(values);
                 break;
 
             case 4:
-                strcpy(config_parameters.server_name, values);
+                strcpy(config_parameters->server_name, values);
                 break;
 
             case 5:
-                config_parameters.server_UDP = atoi(values);
+                config_parameters->server_UDP = atoi(values);
                 break;
         
             default:
@@ -99,8 +97,14 @@ void read_parameters(char fn[64]) {
 
 int main(int argc, char *argv[]) {
     struct hostent *ent;
+    struct config config_parameters;
+    struct sockaddr_in addr_cli;
+    struct sockaddr_in addr_server;
+
     ent = gethostbyname(config_parameters.server_name);
     char *fn;
+
+    //getopt mirar 
 
     switch(*argv[1]) {
         case 'c':
@@ -118,11 +122,32 @@ int main(int argc, char *argv[]) {
         default:
             break;
     }
-    
-    read_parameters(fn);
+
+    read_parameters(fn, &config_parameters);
 
     for(int i = 0; i < 4; i++){         
         printf("%s-%i-%c\n",config_parameters.elements[i].magnitud, config_parameters.elements[i].ordinal,config_parameters.elements[i].tipus);     
     }
+
+    sock_UDP = socket(AF_INET, SOCK_DGRAM, 0);
+
+	if(sock_UDP < 0)
+	{
+		fprintf(stderr,"No puc obrir socket!!!\n");
+		perror(argv[0]);
+		exit(-1);
+	}
+	
+    //fer funció per a configurar el sockaddr_in
+
+	memset(&addr_cli, 0, sizeof (struct sockaddr_in));
+	addr_cli.sin_family = AF_INET;
+	addr_cli.sin_addr.s_addr = htonl(INADDR_ANY);
+	addr_cli.sin_port = htons(config_parameters.server_UDP);
+
+    memset(&addr_server, 0, sizeof (struct sockaddr_in));
+	addr_server.sin_family = AF_INET;
+	addr_server.sin_addr.s_addr = htonl(INADDR_ANY);
+	addr_server.sin_port = htons(config_parameters.server_UDP);
 
 }
