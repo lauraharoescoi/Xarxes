@@ -9,10 +9,25 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
-
 #define BUFFSIZE 255
 
 char buffer[BUFFSIZE + 2];
+
+unsigned char REG_REQ = 0xa0;
+unsigned char REG_ACK = 0xa1;
+unsigned char REG_NACK = 0xa2;
+unsigned char REG_REJ = 0xa3;
+unsigned char REG_INFO = 0xa4;
+unsigned char INFO_ACK = 0xa5;
+unsigned char INFO_NACK = 0xa6;
+unsigned char INFO_REJ = 0xa7;
+
+enum cli_stats {
+    DISCONNECTED, NOT_REGISTERED, WAIT_ACK_REG, WAIT_INFO, WAIT_ACK_INFO, REGISTERED, SEND_ALIVE
+};
+
+//fer lo mateix que amb els paquets per a que no es noti que es idea del guillem uwu
+char *stats_name[] = {[DISCONNECTED]="DISCONNECTED", [NOT_REGISTERED]="NOT_REGISTERED", [WAIT_ACK_REG]="WAIT_ACK_REG", [WAIT_INFO]="WAIT_INFO", [WAIT_ACK_INFO]="WAIT_ACK_INFO", [REGISTERED]="REGISTERED", [SEND_ALIVE]="SEND_ALIVE"};
 
 struct element {
     char magnitud[3];
@@ -27,6 +42,14 @@ struct config {
     char server_name[10];
     int server_UDP;
 };
+
+struct pdu_UDP {
+    unsigned char tipus;
+    char id_transmissor[11];
+    char id_comunicacio[11];
+    char dades[61];
+}
+
 
 void save_elements(char * elements, int i, struct config *config_parameters) {
     char * element;
@@ -131,8 +154,7 @@ int main(int argc, char *argv[]) {
 
     sock_UDP = socket(AF_INET, SOCK_DGRAM, 0);
 
-	if(sock_UDP < 0)
-	{
+	if(sock_UDP < 0) {
 		fprintf(stderr,"No puc obrir socket!!!\n");
 		perror(argv[0]);
 		exit(-1);
