@@ -13,6 +13,7 @@
 
 char buffer[BUFFSIZE + 2];
 
+//paquets UDP registre
 unsigned char REG_REQ = 0xa0;
 unsigned char REG_ACK = 0xa1;
 unsigned char REG_NACK = 0xa2;
@@ -22,13 +23,31 @@ unsigned char INFO_ACK = 0xa5;
 unsigned char INFO_NACK = 0xa6;
 unsigned char INFO_REJ = 0xa7;
 
+//estats del client
 enum cli_stats {
     DISCONNECTED, NOT_REGISTERED, WAIT_ACK_REG, WAIT_INFO, WAIT_ACK_INFO, REGISTERED, SEND_ALIVE
 };
 
-//fer lo mateix que amb els paquets per a que no es noti que es idea del guillem uwu
+//temps d'espera
+int t = 1;
+int u = 2;
+int n = 8;
+int o = 3;
+int p = 2;
+int q = 4;
+
+/*chars dels estats
+char *DISCONNECTED = "DISCONNECTED";
+char[] NOT_REGISTERED = "NOT_REGISTERED";
+char[] WAIT_ACK_REG = "WAIT_ACK_REG";
+char[] WAIT_INFO = "WAIT_INFO";
+char[] WAIT_ACK_INFO = "WAIT_ACK_INFO";
+char[] REGISTERED = "REGISTERED";
+char[] SEND_ALIVE = "SEND_ALIVE"*/
+
 char *stats_name[] = {[DISCONNECTED]="DISCONNECTED", [NOT_REGISTERED]="NOT_REGISTERED", [WAIT_ACK_REG]="WAIT_ACK_REG", [WAIT_INFO]="WAIT_INFO", [WAIT_ACK_INFO]="WAIT_ACK_INFO", [REGISTERED]="REGISTERED", [SEND_ALIVE]="SEND_ALIVE"};
 
+//structs de configuracio
 struct element {
     char magnitud[3];
     int ordinal;
@@ -48,8 +67,7 @@ struct pdu_UDP {
     char id_transmissor[11];
     char id_comunicacio[11];
     char dades[61];
-}
-
+};
 
 void save_elements(char * elements, int i, struct config *config_parameters) {
     char * element;
@@ -117,12 +135,27 @@ void read_parameters(char fn[64], struct config *config_parameters) {
     fclose(file);
 }
 
+void config_socket(struct config *config_parameters, struct sockaddr_in *addr) {
+    memset(addr, 0, sizeof (struct sockaddr_in));
+	addr->sin_family = AF_INET;
+	addr->sin_addr.s_addr = htonl(INADDR_ANY);
+	addr->sin_port = htons(config_parameters->server_UDP);
+}
+
+void config_pdu_UDP(struct config *config_parameters, struct pdu_UDP *pdu, unsigned char paquet) {
+    pdu->tipus = paquet;
+    strcpy(pdu->id_transmissor, config_parameters->id);
+    strcpy(pdu->id_comunicacio, "0000000000");
+    strcpy(pdu->dades, "");
+}
 
 int main(int argc, char *argv[]) {
     struct hostent *ent;
     struct config config_parameters;
     struct sockaddr_in addr_cli;
     struct sockaddr_in addr_server;
+    int sock_UDP;
+    struct pdu_UDP pdu_UDP;
 
     ent = gethostbyname(config_parameters.server_name);
     char *fn;
@@ -160,16 +193,8 @@ int main(int argc, char *argv[]) {
 		exit(-1);
 	}
 	
-    //fer funció per a configurar el sockaddr_in
+    config_socket(&config_parameters, &addr_cli);
+    config_socket(&config_parameters, &addr_server);
 
-	memset(&addr_cli, 0, sizeof (struct sockaddr_in));
-	addr_cli.sin_family = AF_INET;
-	addr_cli.sin_addr.s_addr = htonl(INADDR_ANY);
-	addr_cli.sin_port = htons(config_parameters.server_UDP);
-
-    memset(&addr_server, 0, sizeof (struct sockaddr_in));
-	addr_server.sin_family = AF_INET;
-	addr_server.sin_addr.s_addr = htonl(INADDR_ANY);
-	addr_server.sin_port = htons(config_parameters.server_UDP);
-
+    config_pdu_UDP(&config_parameters, &pdu_UDP, REG_REQ);
 }
