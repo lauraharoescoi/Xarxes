@@ -14,18 +14,27 @@
 char buffer[BUFFSIZE + 2];
 
 //paquets UDP registre
-unsigned char REG_REQ = 0xa0;
-unsigned char REG_ACK = 0xa1;
-unsigned char REG_NACK = 0xa2;
-unsigned char REG_REJ = 0xa3;
-unsigned char REG_INFO = 0xa4;
-unsigned char INFO_ACK = 0xa5;
-unsigned char INFO_NACK = 0xa6;
-unsigned char INFO_REJ = 0xa7;
+enum register_packages {
+    REG_REQ = 0xa0,
+    REG_ACK = 0xa1,
+    REG_NACK = 0xa2,
+    REG_REJ = 0xa3,
+    REG_INFO = 0xa4,
+    INFO_ACK = 0xa5,
+    INFO_NACK = 0xa6,
+    INFO_REJ = 0xa7,
+};
+
 
 //estats del client
 enum cli_stats {
-    DISCONNECTED, NOT_REGISTERED, WAIT_ACK_REG, WAIT_INFO, WAIT_ACK_INFO, REGISTERED, SEND_ALIVE
+    DISCONNECTED, 
+    NOT_REGISTERED, 
+    WAIT_ACK_REG, 
+    WAIT_INFO, 
+    WAIT_ACK_INFO, 
+    REGISTERED, 
+    SEND_ALIVE
 };
 
 //temps d'espera
@@ -58,7 +67,7 @@ struct config {
     char id[10];
     struct element elements[5];
     int local_TCP;
-    char server_name[10];
+    char server_name[64];
     int server_UDP;
 };
 
@@ -135,13 +144,6 @@ void read_parameters(char fn[64], struct config *config_parameters) {
     fclose(file);
 }
 
-void config_socket(struct config *config_parameters, struct sockaddr_in *addr) {
-    memset(addr, 0, sizeof (struct sockaddr_in));
-	addr->sin_family = AF_INET;
-	addr->sin_addr.s_addr = htonl(INADDR_ANY);
-	addr->sin_port = htons(config_parameters->server_UDP);
-}
-
 void config_pdu_UDP(struct config *config_parameters, struct pdu_UDP *pdu, unsigned char paquet) {
     pdu->tipus = paquet;
     strcpy(pdu->id_transmissor, config_parameters->id);
@@ -154,10 +156,10 @@ int main(int argc, char *argv[]) {
     struct config config_parameters;
     struct sockaddr_in addr_cli;
     struct sockaddr_in addr_server;
-    int sock_UDP;
+    int sock_UDP, a;
     struct pdu_UDP pdu_UDP;
+    
 
-    ent = gethostbyname(config_parameters.server_name);
     char *fn;
 
     //getopt mirar 
@@ -180,11 +182,11 @@ int main(int argc, char *argv[]) {
     }
 
     read_parameters(fn, &config_parameters);
+    //EEEEEH ZORRAAA AIXO VA MALAMENT, NO ET LLEGEIX BÉ EL SERVER_NAME DEL STRUCT CONFIG
+    strcpy(config_parameters.server_name, "localhost");
+    ent = gethostbyname(config_parameters.server_name);
 
-    for(int i = 0; i < 4; i++){         
-        printf("%s-%i-%c\n",config_parameters.elements[i].magnitud, config_parameters.elements[i].ordinal,config_parameters.elements[i].tipus);     
-    }
-
+    printf("%s", ent->h_addr);
     sock_UDP = socket(AF_INET, SOCK_DGRAM, 0);
 
 	if(sock_UDP < 0) {
@@ -192,9 +194,31 @@ int main(int argc, char *argv[]) {
 		perror(argv[0]);
 		exit(-1);
 	}
-	
-    config_socket(&config_parameters, &addr_cli);
-    config_socket(&config_parameters, &addr_server);
 
+    memset(&addr_cli, 0, sizeof (struct sockaddr_in));
+	addr_cli.sin_family = AF_INET;
+	addr_cli.sin_addr.s_addr = htonl(INADDR_ANY);
+	addr_cli.sin_port = htons(config_parameters.server_UDP);
+
+    if(bind (sock_UDP, (struct sockaddr *) &addr_cli, sizeof(struct sockaddr_in)) < 0) {
+		fprintf(stderr,"No puc fer el binding del socket!!!\n");
+        perror(argv[0]);
+        exit(-2);
+	}
+
+    memset(&addr_server, 0, sizeof (struct sockaddr_in));
+	addr_server.sin_family = AF_INET;
+	addr_server.sin_addr.s_addr = (((struct in_addr *)ent->h_addr)->s_addr);
+	addr_server.sin_port = htons(config_parameters.server_UDP);
+    
     config_pdu_UDP(&config_parameters, &pdu_UDP, REG_REQ);
+
+    a = sendto(sock_UDP, pdu_UDP.dades,strlen(pdu_UDP.dades) + 1, 0,(struct sockaddr*)&addr_server, sizeof(addr_server));
+    if (a < 0) {
+        fprintf(stderr,"Error al sendto\n");
+        perror(argv[0]);
+        exit(-2);
+    }
+
+    close(sock_UDP);
 }
