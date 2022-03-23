@@ -67,7 +67,7 @@ struct config {
     char id[10];
     struct element elements[5];
     int local_TCP;
-    char server_name[64];
+    char server_name[9];
     int server_UDP;
 };
 
@@ -184,7 +184,12 @@ int main(int argc, char *argv[]) {
     read_parameters(fn, &config_parameters);
     //EEEEEH ZORRAAA AIXO VA MALAMENT, NO ET LLEGEIX BÉ EL SERVER_NAME DEL STRUCT CONFIG
     strcpy(config_parameters.server_name, "localhost");
+    //printf("%s\n", config_parameters.server_name);
     ent = gethostbyname(config_parameters.server_name);
+    if(!ent) {
+        printf("Error! No trobat: %s \n",argv[1]);
+        exit(-1);
+    }
 
     printf("%s", ent->h_addr);
     sock_UDP = socket(AF_INET, SOCK_DGRAM, 0);
@@ -200,11 +205,12 @@ int main(int argc, char *argv[]) {
 	addr_cli.sin_addr.s_addr = htonl(INADDR_ANY);
 	addr_cli.sin_port = htons(config_parameters.server_UDP);
 
-    if(bind (sock_UDP, (struct sockaddr *) &addr_cli, sizeof(struct sockaddr_in)) < 0) {
+    //no funciona el binding
+    /*if(bind (sock_UDP, (struct sockaddr *) &addr_cli, sizeof(struct sockaddr_in)) < 0) {
 		fprintf(stderr,"No puc fer el binding del socket!!!\n");
         perror(argv[0]);
         exit(-2);
-	}
+	}*/
 
     memset(&addr_server, 0, sizeof (struct sockaddr_in));
 	addr_server.sin_family = AF_INET;
@@ -219,6 +225,15 @@ int main(int argc, char *argv[]) {
         perror(argv[0]);
         exit(-2);
     }
+    //aixo no saps ni el que fa autista
+    /*a = recvfrom(sock_UDP, pdu_UDP.dades, BUFFSIZE, 0, (struct sockaddr *)0, (int *)0);
+    if (a < 0) {
+        fprintf(stderr, "Error al recvfrom\n");
+        perror(argv[0]);
+        exit(-2);
+    }
+    pdu_UDP.dades[a] = '\0';
+    printf("%s\n", pdu_UDP.dades);*/
 
     close(sock_UDP);
 }
