@@ -14,7 +14,7 @@
 char buffer[BUFFSIZE + 2];
 
 //paquets UDP registre
-enum register_packages {
+/*enum register_packages {
     REG_REQ = 0xa0,
     REG_ACK = 0xa1,
     REG_NACK = 0xa2,
@@ -22,8 +22,17 @@ enum register_packages {
     REG_INFO = 0xa4,
     INFO_ACK = 0xa5,
     INFO_NACK = 0xa6,
-    INFO_REJ = 0xa7,
-};
+    INFO_REJ = 0xa7
+};*/
+
+unsigned char REG_REQ = 0xa0;
+unsigned char REG_ACK = 0xa1;
+unsigned char REG_NACK = 0xa2;
+unsigned char REG_REJ = 0xa3;
+unsigned char REG_INFO = 0xa4;
+unsigned char INFO_ACK = 0xa5;
+unsigned char INFO_NACK = 0xa6;
+unsigned char INFO_REJ = 0xa7;
 
 
 //estats del client
@@ -34,7 +43,7 @@ enum cli_stats {
     WAIT_INFO, 
     WAIT_ACK_INFO, 
     REGISTERED, 
-    SEND_ALIVE
+    SEND_ALIVE,
 };
 
 //temps d'espera
@@ -67,7 +76,7 @@ struct config {
     char id[10];
     struct element elements[5];
     int local_TCP;
-    char server_name[9];
+    char server_name[10];
     int server_UDP;
 };
 
@@ -114,7 +123,7 @@ void read_parameters(char fn[64], struct config *config_parameters) {
             strcpy(values, strtok(NULL, " "));
         }
         values[strcspn(values, "\n")] = 0;
-
+        
         switch (line) {
             case 1:
                 strcpy(config_parameters->id, values);
@@ -144,11 +153,11 @@ void read_parameters(char fn[64], struct config *config_parameters) {
     fclose(file);
 }
 
-void config_pdu_UDP(struct config *config_parameters, struct pdu_UDP *pdu, unsigned char paquet) {
+void config_pdu_UDP(struct pdu_UDP *pdu, unsigned char paquet, char *id, const char *id_comunicacio, const char *dades) {
     pdu->tipus = paquet;
-    strcpy(pdu->id_transmissor, config_parameters->id);
-    strcpy(pdu->id_comunicacio, "0000000000");
-    strcpy(pdu->dades, "");
+    strcpy(pdu->id_transmissor, id);
+    strcpy(pdu->id_comunicacio, id_comunicacio);
+    strcpy(pdu->dades, dades);
 }
 
 int main(int argc, char *argv[]) {
@@ -158,10 +167,9 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in addr_server;
     int sock_UDP, a;
     struct pdu_UDP pdu_UDP;
-    
 
     char *fn;
-
+    
     //getopt mirar 
 
     switch(*argv[1]) {
@@ -182,16 +190,16 @@ int main(int argc, char *argv[]) {
     }
 
     read_parameters(fn, &config_parameters);
+    
     //EEEEEH ZORRAAA AIXO VA MALAMENT, NO ET LLEGEIX BÉ EL SERVER_NAME DEL STRUCT CONFIG
     strcpy(config_parameters.server_name, "localhost");
-    //printf("%s\n", config_parameters.server_name);
     ent = gethostbyname(config_parameters.server_name);
     if(!ent) {
         printf("Error! No trobat: %s \n",argv[1]);
         exit(-1);
     }
 
-    printf("%s", ent->h_addr);
+    printf("%s\n", ent->h_addr);
     sock_UDP = socket(AF_INET, SOCK_DGRAM, 0);
 
 	if(sock_UDP < 0) {
@@ -202,29 +210,30 @@ int main(int argc, char *argv[]) {
 
     memset(&addr_cli, 0, sizeof (struct sockaddr_in));
 	addr_cli.sin_family = AF_INET;
-	addr_cli.sin_addr.s_addr = htonl(INADDR_ANY);
-	addr_cli.sin_port = htons(config_parameters.server_UDP);
+	addr_cli.sin_addr.s_addr = INADDR_ANY;
+	addr_cli.sin_port = htons(0);
 
-    //no funciona el binding
-    /*if(bind (sock_UDP, (struct sockaddr *) &addr_cli, sizeof(struct sockaddr_in)) < 0) {
+
+    if(bind (sock_UDP, (struct sockaddr *) &addr_cli, sizeof(struct sockaddr_in)) < 0) {
 		fprintf(stderr,"No puc fer el binding del socket!!!\n");
         perror(argv[0]);
         exit(-2);
-	}*/
-
+	}
     memset(&addr_server, 0, sizeof (struct sockaddr_in));
 	addr_server.sin_family = AF_INET;
-	addr_server.sin_addr.s_addr = (((struct in_addr *)ent->h_addr)->s_addr);
+	addr_server.sin_addr.s_addr = INADDR_ANY;
 	addr_server.sin_port = htons(config_parameters.server_UDP);
     
-    config_pdu_UDP(&config_parameters, &pdu_UDP, REG_REQ);
+    config_pdu_UDP(&pdu_UDP, REG_REQ, config_parameters.id, "0000000000", "");
 
-    a = sendto(sock_UDP, pdu_UDP.dades,strlen(pdu_UDP.dades) + 1, 0,(struct sockaddr*)&addr_server, sizeof(addr_server));
+    a = sendto(sock_UDP, &pdu_UDP, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
     if (a < 0) {
         fprintf(stderr,"Error al sendto\n");
         perror(argv[0]);
         exit(-2);
     }
+    printf("Checkpoint\n");
+
     //aixo no saps ni el que fa autista
     /*a = recvfrom(sock_UDP, pdu_UDP.dades, BUFFSIZE, 0, (struct sockaddr *)0, (int *)0);
     if (a < 0) {
