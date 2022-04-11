@@ -73,19 +73,19 @@ struct element {
 };
 
 struct config {
-    char id[10];
+    char id[11];
     struct element elements[5];
     int local_TCP;
-    char server_name[10];
+    char server_name[11];
     int server_UDP;
 };
 
-struct pdu_UDP {
+typedef struct pdu_UDP {
     unsigned char tipus;
     char id_transmissor[11];
     char id_comunicacio[11];
     char dades[61];
-};
+} pdu_UDP;
 
 void save_elements(char * elements, int i, struct config *config_parameters) {
     char * element;
@@ -115,10 +115,10 @@ void read_elements(char * values, struct config *config_parameters) {
 
 void read_parameters(char fn[64], struct config *config_parameters) {
     FILE *file = fopen(fn, "r");
-    char values[64];
+    char *values;
     int line = 1;
     while(fgets(buffer, BUFFSIZE, (FILE*) file) != NULL) {
-        strcpy(values, strtok(buffer, " "));
+        values = strtok(buffer, " ");
         for (int i = 0; i < 2; i++) {
             strcpy(values, strtok(NULL, " "));
         }
@@ -153,10 +153,10 @@ void read_parameters(char fn[64], struct config *config_parameters) {
     fclose(file);
 }
 
-void config_pdu_UDP(struct pdu_UDP *pdu, unsigned char paquet, char *id, const char *id_comunicacio, const char *dades) {
+void config_pdu_UDP(struct pdu_UDP *pdu, char paquet, char id[], char id_comunicacio[], char dades[]) {
     pdu->tipus = paquet;
-    strcpy(pdu->id_transmissor, id);
     strcpy(pdu->id_comunicacio, id_comunicacio);
+    strcpy(pdu->id_transmissor, id);
     strcpy(pdu->dades, dades);
 }
 
@@ -166,7 +166,7 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in addr_cli;
     struct sockaddr_in addr_server;
     int sock_UDP, a;
-    struct pdu_UDP pdu_UDP;
+    struct pdu_UDP pdu;
 
     char *fn;
     
@@ -192,14 +192,14 @@ int main(int argc, char *argv[]) {
     read_parameters(fn, &config_parameters);
     
     //EEEEEH ZORRAAA AIXO VA MALAMENT, NO ET LLEGEIX BÉ EL SERVER_NAME DEL STRUCT CONFIG
-    strcpy(config_parameters.server_name, "localhost");
+    //strcpy(config_parameters.server_name, "localhost");
     ent = gethostbyname(config_parameters.server_name);
     if(!ent) {
         printf("Error! No trobat: %s \n",argv[1]);
         exit(-1);
     }
-
-    printf("%s\n", ent->h_addr);
+    
+    //printf("%s\n", ent->h_addr);
     sock_UDP = socket(AF_INET, SOCK_DGRAM, 0);
 
 	if(sock_UDP < 0) {
@@ -223,10 +223,10 @@ int main(int argc, char *argv[]) {
 	addr_server.sin_family = AF_INET;
 	addr_server.sin_addr.s_addr = INADDR_ANY;
 	addr_server.sin_port = htons(config_parameters.server_UDP);
+    config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
+    printf("%s\n", pdu.id_transmissor);
     
-    config_pdu_UDP(&pdu_UDP, REG_REQ, config_parameters.id, "0000000000", "");
-
-    a = sendto(sock_UDP, &pdu_UDP, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+    a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
     if (a < 0) {
         fprintf(stderr,"Error al sendto\n");
         perror(argv[0]);
