@@ -23,6 +23,8 @@ unsigned char INFO_ACK = 0xa5;
 unsigned char INFO_NACK = 0xa6;
 unsigned char INFO_REJ = 0xa7;
 
+struct sockaddr_in addr_cli;
+struct sockaddr_in addr_server;
 
 //estats del client
 enum cli_stats {
@@ -36,12 +38,12 @@ enum cli_stats {
 };
 
 //temps d'espera
-int t = 1;
-int u = 2;
-int n = 8;
-int o = 3;
-int p = 2;
-int q = 4;
+const int T = 1;
+const int U = 2;
+const int N = 8;
+const int O = 3;
+const int P = 2;
+const int Q = 4;
 
 /*chars dels estats
 char *DISCONNECTED = "DISCONNECTED";
@@ -150,17 +152,53 @@ void config_pdu_UDP(struct pdu_UDP *pdu, char paquet, char id[], char id_comunic
     strcpy(pdu->dades, dades);
 }
 
+int config_select(int socket, int timeout){
+    struct timeval time;
+    fd_set fd;
+    FD_ZERO(&fd);
+    FD_SET(socket, &fd);
+    time.tv_sec = timeout;
+    time.tv_usec = 0;
+    int result = select(socket + 1, &fd, NULL, NULL, &time);
+    if(result < 0) {
+        printf("Error en el select");
+        exit(-1);        
+    }
+    return result;
+    
+}
+
+
+int register_select(int socket, struct pdu_UDP pdu) {
+    int timeout = T;
+    int num_tries = 0;
+    int result_select = 0;
+    int a;
+    
+    do {
+        a = sendto(socket, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+        if (a < 0) {
+            fprintf(stderr,"Error al sendto\n");
+            exit(-2);
+        }
+        result_select = config_select(socket, timeout);
+        ++num_tries;
+        if(num_tries <= T * Q) {
+            timeout = num_tries * T;
+        }
+        printf("intent: %i, temps: %i\n", num_tries, timeout);
+    } while (result_select <= 0 && num_tries < N); 
+    return result_select;
+}
+
 int main(int argc, char *argv[]) {
     struct hostent *ent;
     struct config config_parameters;
-    struct sockaddr_in addr_cli;
-    struct sockaddr_in addr_server;
-    int sock_UDP, a;
+    int sock_UDP, a, b;
     struct pdu_UDP pdu;
     unsigned char estat_client;
     char *fn;
-    fd_set fd;
-    
+
     //getopt mirar 
 
     switch(*argv[1]) {
@@ -214,32 +252,27 @@ int main(int argc, char *argv[]) {
 	addr_server.sin_addr.s_addr = INADDR_ANY;
 	addr_server.sin_port = htons(config_parameters.server_UDP);
 
-
-    estat_client = NOT_REGISTERED;
     config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
-    a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
-    if (a < 0) {
-        fprintf(stderr,"Error al sendto\n");
-        perror(argv[0]);
+    
+    int intent_reg = 0;
+    while (intent_reg < O) {
+        a = register_select(sock_UDP, pdu);
+        ++intent_reg;
+    } 
+
+    if (intent_reg == O) {
+        printf("Error en el registre\n");
         exit(-2);
     }
-    
-    struct timeval time;
-    FD_ZERO(&fd);
-    FD_SET(sock_UDP, &fd);
-    time.tv_sec = t;
-    time.tv_usec = 0;
 
-    if (select(sock_UDP + 1, &fd, NULL, NULL, &time) > 0) {
-        a = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
-	    if(a < 0) {
-		    fprintf(stderr,"Error al recvfrom\n");
-		    perror(argv[0]);
-		    exit(-2);
-	    }
+    if (a > 0) {
+        b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
+        if(b < 0) {
+            fprintf(stderr,"Error al recvfrom\n");
+            perror(argv[0]);
+            exit(-2);
+        }
         printf("Checkpoint\n");
     }
-
-    
     close(sock_UDP);
 }
