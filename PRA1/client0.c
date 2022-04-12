@@ -30,6 +30,7 @@ unsigned char ALIVE_REJ = 0xb2;
 struct sockaddr_in addr_cli;
 struct sockaddr_in addr_server;
 unsigned char estat_client;
+struct hostent *ent;
 
 //estats del client
 enum cli_stats {
@@ -77,6 +78,20 @@ typedef struct pdu_UDP {
     char dades[61];
 } pdu_UDP;
 
+void print_data_client(struct config config) {
+    printf("********************* DADES DISPOSITIU ***********************\n\n");
+    printf("  Identificador: %s\n", config.id);
+    printf("  Estat: DISCONNECTED\n\n");
+    printf("    Param       Valor\n");
+    printf("    -------     --------------\n");
+    /*int i = 0;
+    while(i < sizeof(config.elements)) {
+        printf("    %s      NONE\n", config.elements_str);
+        ++i;
+    }*/
+    printf("**************************************************************\n");
+
+}
 
 void save_elements(char * elements, int i, struct config *config_parameters) {
     char * element;
@@ -143,6 +158,38 @@ void read_parameters(char fn[64], struct config *config_parameters) {
         line += 1;
     }
     fclose(file);
+}
+
+int config_sockets(struct config config_parameters) {
+    ent = gethostbyname(config_parameters.server_name);
+    if(!ent) {
+        printf("Error! No trobat");
+        exit(-1);
+    }
+    
+    int sock_UDP = socket(AF_INET, SOCK_DGRAM, 0);
+
+	if(sock_UDP < 0) {
+		fprintf(stderr,"No puc obrir socket!!!\n");
+		exit(-1);
+	}
+
+    memset(&addr_cli, 0, sizeof (struct sockaddr_in));
+	addr_cli.sin_family = AF_INET;
+	addr_cli.sin_addr.s_addr = INADDR_ANY;
+	addr_cli.sin_port = htons(0);
+
+    return sock_UDP;
+}
+void bind_sock(int socket, struct config config_parameters) {
+    if(bind (socket, (struct sockaddr *) &addr_cli, sizeof(struct sockaddr_in)) < 0) {
+		fprintf(stderr,"No puc fer el binding del socket!!!\n");
+        exit(-2);
+	}
+    memset(&addr_server, 0, sizeof (struct sockaddr_in));
+    addr_server.sin_family = AF_INET;
+    addr_server.sin_addr.s_addr = (((struct in_addr *)ent->h_addr_list[0])->s_addr);
+    addr_server.sin_port = htons(config_parameters.server_UDP);
 }
 
 void config_pdu_UDP(struct pdu_UDP *pdu, char paquet, char id[], char id_comunicacio[], char dades[]) {
@@ -214,10 +261,12 @@ void check_package(struct pdu_UDP pdu) {
     if(pdu.tipus == REG_REJ) estat_client = NOT_REGISTERED;
     if(pdu.tipus == REG_INFO) estat_client = WAIT_ACK_INFO;
     if(pdu.tipus == INFO_ACK) estat_client = REGISTERED;
+    if(pdu.tipus == ALIVE) estat_client = SEND_ALIVE;
+    if(pdu.tipus == ALIVE_REJ) estat_client = NOT_REGISTERED;
 }
 
 int main(int argc, char *argv[]) {
-    struct hostent *ent;
+    
     struct config config_parameters;
     int sock_UDP, a = 0, b = 0, c = 0;
     struct pdu_UDP pdu;
@@ -246,97 +295,43 @@ int main(int argc, char *argv[]) {
     }
 
     read_parameters(fn, &config_parameters);
+    print_data_client(config_parameters);
     
-    //EEEEEH ZORRAAA JA FUNCIONA, TENIES LA CARPETA CURSED
-    ent = gethostbyname(config_parameters.server_name);
-    if(!ent) {
-        printf("Error! No trobat: %s \n",argv[1]);
-        exit(-1);
-    }
+    sock_UDP = config_sockets(config_parameters);
     
-    sock_UDP = socket(AF_INET, SOCK_DGRAM, 0);
+    bind_sock(sock_UDP, config_parameters);
 
-	if(sock_UDP < 0) {
-		fprintf(stderr,"No puc obrir socket!!!\n");
-		perror(argv[0]);
-		exit(-1);
-	}
-
-    memset(&addr_cli, 0, sizeof (struct sockaddr_in));
-	addr_cli.sin_family = AF_INET;
-	addr_cli.sin_addr.s_addr = INADDR_ANY;
-	addr_cli.sin_port = htons(0);
-
-    //Binding del socket
-
-    if(bind (sock_UDP, (struct sockaddr *) &addr_cli, sizeof(struct sockaddr_in)) < 0) {
-		fprintf(stderr,"No puc fer el binding del socket!!!\n");
-        perror(argv[0]);
-        exit(-2);
-	}
-    memset(&addr_server, 0, sizeof (struct sockaddr_in));
-	addr_server.sin_family = AF_INET;
-	addr_server.sin_addr.s_addr = (((struct in_addr *)ent->h_addr_list[0])->s_addr);
-	addr_server.sin_port = htons(config_parameters.server_UDP);
-
-    config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
-    
-    while (estat_client == NOT_REGISTERED) {
-        if (pdu.tipus == REG_REJ){
-            num_tries = 0;
-            intent_reg = 0;
-        }
-        a = send_reg_req(pdu, sock_UDP, num_tries, intent_reg);
+    while(estat_client == NOT_REGISTERED){
+        config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
         
-        if (a > 0) {
-            b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
-            if(b < 0) {
-                fprintf(stderr,"Error al recvfrom\n");
-                perror(argv[0]);
-                exit(-2);
+        while (estat_client == NOT_REGISTERED) {
+            if (pdu.tipus == REG_REJ){
+                num_tries = 0;
+                intent_reg = 0;
             }
-            check_package(pdu);
+            a = send_reg_req(pdu, sock_UDP, num_tries, intent_reg);
+            
+            if (a > 0) {
+                b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
+                if(b < 0) {
+                    fprintf(stderr,"Error al recvfrom\n");
+                    perror(argv[0]);
+                    exit(-2);
+                }
+                check_package(pdu);
+            }
         }
-    }
-    addr_server.sin_port = htons(atoi(pdu.dades));
-    sprintf(buffer, "%d,%s", config_parameters.local_TCP, config_parameters.elements_str);
-    config_pdu_UDP(&pdu, REG_INFO, config_parameters.id, pdu.id_comunicacio, buffer);
-
-    a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
-    if (a < 0) {
-        fprintf(stderr,"Error al sendto\n");
-        exit(-2);
-    }
-    c = config_select(sock_UDP, 2 * T);
-    if(c > 0 && estat_client == WAIT_ACK_INFO) {
-        b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
-        if(b < 0) {
-            fprintf(stderr,"Error al recvfrom\n");
-            perror(argv[0]);
-            exit(-2);
-        }
-        check_package(pdu);
-    }
-    addr_server.sin_port = htons(config_parameters.server_UDP);
-
-    int count = 0;
-    while(count < 3) {
-        config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
+        addr_server.sin_port = htons(atoi(pdu.dades));
+        sprintf(buffer, "%d,%s", config_parameters.local_TCP, config_parameters.elements_str);
+        config_pdu_UDP(&pdu, REG_INFO, config_parameters.id, pdu.id_comunicacio, buffer);
 
         a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
         if (a < 0) {
             fprintf(stderr,"Error al sendto\n");
             exit(-2);
         }
-        sleep(V);
-        c = config_select(sock_UDP, 0);
-
-        if (c == 0) {
-            ++count;
-        } else {
-            count = 0;
-        }
-        if(c > 0 && estat_client == REGISTERED) {
+        c = config_select(sock_UDP, 2 * T);
+        if(c > 0 && estat_client == WAIT_ACK_INFO) {
             b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
             if(b < 0) {
                 fprintf(stderr,"Error al recvfrom\n");
@@ -345,10 +340,39 @@ int main(int argc, char *argv[]) {
             }
             check_package(pdu);
         }
-        printf("Checkpoint\n");
-        printf("%i\n", count);
+        addr_server.sin_port = htons(config_parameters.server_UDP);
+
+        int count = 0;
+        while(count < 3) {
+            config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
+
+            a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+            if (a < 0) {
+                fprintf(stderr,"Error al sendto\n");
+                exit(-2);
+            }
+            sleep(V);
+            c = config_select(sock_UDP, 0);
+
+            if (c == 0) {
+                ++count;
+            } else {
+                count = 0;
+            }
+            if(c > 0) {
+                b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
+                if(b < 0) {
+                    fprintf(stderr,"Error al recvfrom\n");
+                    perror(argv[0]);
+                    exit(-2);
+                }
+                check_package(pdu);
+            }
+        
+            printf("%i\n", count);
+        }
+        estat_client = NOT_REGISTERED;
     }
-    printf("pito\n");
     exit(-1);
     close(sock_UDP);
 }
