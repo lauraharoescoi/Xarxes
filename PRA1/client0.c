@@ -188,15 +188,16 @@ int register_select(int socket, struct pdu_UDP pdu) {
         }
         printf("intent: %i, temps: %i\n", num_tries, timeout);
     } while (result_select <= 0 && num_tries < N); 
+    
     return result_select;
 }
 
 int main(int argc, char *argv[]) {
     struct hostent *ent;
     struct config config_parameters;
-    int sock_UDP, a, b;
+    int sock_UDP, a = 0, b = 0;
     struct pdu_UDP pdu;
-    unsigned char estat_client;
+    unsigned char estat_client = NOT_REGISTERED;
     char *fn;
 
     //getopt mirar 
@@ -249,13 +250,13 @@ int main(int argc, char *argv[]) {
 	}
     memset(&addr_server, 0, sizeof (struct sockaddr_in));
 	addr_server.sin_family = AF_INET;
-	addr_server.sin_addr.s_addr = INADDR_ANY;
+	addr_server.sin_addr.s_addr = (((struct in_addr *)ent->h_addr_list[0])->s_addr);
 	addr_server.sin_port = htons(config_parameters.server_UDP);
 
     config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
     
     int intent_reg = 0;
-    while (intent_reg < O) {
+    while (intent_reg < O && a <= 0) {
         a = register_select(sock_UDP, pdu);
         ++intent_reg;
     } 
@@ -264,6 +265,8 @@ int main(int argc, char *argv[]) {
         printf("Error en el registre\n");
         exit(-2);
     }
+    
+    estat_client = WAIT_ACK_REG;
 
     if (a > 0) {
         b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
