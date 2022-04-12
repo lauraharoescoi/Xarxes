@@ -23,8 +23,13 @@ unsigned char INFO_ACK = 0xa5;
 unsigned char INFO_NACK = 0xa6;
 unsigned char INFO_REJ = 0xa7;
 
+unsigned char ALIVE = 0xb0;
+unsigned char ALIVE_NACK = 0xb1;
+unsigned char ALIVE_REJ = 0xb2;
+
 struct sockaddr_in addr_cli;
 struct sockaddr_in addr_server;
+unsigned char estat_client;
 
 //estats del client
 enum cli_stats {
@@ -44,15 +49,8 @@ const int N = 8;
 const int O = 3;
 const int P = 2;
 const int Q = 4;
-
-/*chars dels estats
-char *DISCONNECTED = "DISCONNECTED";
-char[] NOT_REGISTERED = "NOT_REGISTERED";
-char[] WAIT_ACK_REG = "WAIT_ACK_REG";
-char[] WAIT_INFO = "WAIT_INFO";
-char[] WAIT_ACK_INFO = "WAIT_ACK_INFO";
-char[] REGISTERED = "REGISTERED";
-char[] SEND_ALIVE = "SEND_ALIVE"*/
+const int V = 2;
+const int R = 2; 
 
 char *stats_name[] = {[DISCONNECTED]="DISCONNECTED", [NOT_REGISTERED]="NOT_REGISTERED", [WAIT_ACK_REG]="WAIT_ACK_REG", [WAIT_INFO]="WAIT_INFO", [WAIT_ACK_INFO]="WAIT_ACK_INFO", [REGISTERED]="REGISTERED", [SEND_ALIVE]="SEND_ALIVE"};
 
@@ -66,6 +64,7 @@ struct element {
 struct config {
     char id[11];
     struct element elements[5];
+    char elements_str[41];
     int local_TCP;
     char server_name[11];
     int server_UDP;
@@ -93,6 +92,7 @@ void save_elements(char * elements, int i, struct config *config_parameters) {
 
 void read_elements(char * values, struct config *config_parameters) {
     char * elements[5];
+    strcpy(config_parameters->elements_str, values);
     int i = 0;
     elements[i] = strtok(values, ";");
     
@@ -159,6 +159,7 @@ int config_select(int socket, int timeout){
     FD_SET(socket, &fd);
     time.tv_sec = timeout;
     time.tv_usec = 0;
+
     int result = select(socket + 1, &fd, NULL, NULL, &time);
     if(result < 0) {
         printf("Error en el select");
@@ -169,9 +170,8 @@ int config_select(int socket, int timeout){
 }
 
 
-int register_select(int socket, struct pdu_UDP pdu) {
+int register_select(int socket, struct pdu_UDP pdu, int num_tries) {
     int timeout = T;
-    int num_tries = 0;
     int result_select = 0;
     int a;
     
@@ -186,19 +186,45 @@ int register_select(int socket, struct pdu_UDP pdu) {
         if(num_tries <= T * Q) {
             timeout = num_tries * T;
         }
-        printf("intent: %i, temps: %i\n", num_tries, timeout);
+        printf("intent: %i, temps: %i\n", num_tries, timeout);  
     } while (result_select <= 0 && num_tries < N); 
     
     return result_select;
 }
 
+int send_reg_req(struct pdu_UDP pdu, int socket, int num_tries, int intent_reg) {
+    int a = 0;
+    while (intent_reg < O && a <= 0) {
+        a = register_select(socket, pdu, num_tries);
+        ++intent_reg;
+    } 
+
+    if (intent_reg == O) {
+        printf("Error en el registre\n");
+        exit(-2);
+    } else { 
+        estat_client = WAIT_ACK_REG;
+    }
+    return a;
+}
+
+void check_package(struct pdu_UDP pdu) {
+    if(pdu.tipus == REG_ACK) estat_client = WAIT_ACK_REG;
+    if(pdu.tipus == REG_NACK) estat_client = NOT_REGISTERED;
+    if(pdu.tipus == REG_REJ) estat_client = NOT_REGISTERED;
+    if(pdu.tipus == REG_INFO) estat_client = WAIT_ACK_INFO;
+    if(pdu.tipus == INFO_ACK) estat_client = REGISTERED;
+}
+
 int main(int argc, char *argv[]) {
     struct hostent *ent;
     struct config config_parameters;
-    int sock_UDP, a = 0, b = 0;
+    int sock_UDP, a = 0, b = 0, c = 0;
     struct pdu_UDP pdu;
-    unsigned char estat_client = NOT_REGISTERED;
     char *fn;
+    estat_client = NOT_REGISTERED;
+    int num_tries = 0;
+    int intent_reg = 0;
 
     //getopt mirar 
 
@@ -255,27 +281,74 @@ int main(int argc, char *argv[]) {
 
     config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
     
-    int intent_reg = 0;
-    while (intent_reg < O && a <= 0) {
-        a = register_select(sock_UDP, pdu);
-        ++intent_reg;
-    } 
+    while (estat_client == NOT_REGISTERED) {
+        if (pdu.tipus == REG_REJ){
+            num_tries = 0;
+            intent_reg = 0;
+        }
+        a = send_reg_req(pdu, sock_UDP, num_tries, intent_reg);
+        
+        if (a > 0) {
+            b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
+            if(b < 0) {
+                fprintf(stderr,"Error al recvfrom\n");
+                perror(argv[0]);
+                exit(-2);
+            }
+            check_package(pdu);
+        }
+    }
+    addr_server.sin_port = htons(atoi(pdu.dades));
+    sprintf(buffer, "%d,%s", config_parameters.local_TCP, config_parameters.elements_str);
+    config_pdu_UDP(&pdu, REG_INFO, config_parameters.id, pdu.id_comunicacio, buffer);
 
-    if (intent_reg == O) {
-        printf("Error en el registre\n");
+    a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+    if (a < 0) {
+        fprintf(stderr,"Error al sendto\n");
         exit(-2);
     }
-    
-    estat_client = WAIT_ACK_REG;
-
-    if (a > 0) {
+    c = config_select(sock_UDP, 2 * T);
+    if(c > 0 && estat_client == WAIT_ACK_INFO) {
         b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
         if(b < 0) {
             fprintf(stderr,"Error al recvfrom\n");
             perror(argv[0]);
             exit(-2);
         }
-        printf("Checkpoint\n");
+        check_package(pdu);
     }
+    addr_server.sin_port = htons(config_parameters.server_UDP);
+
+    int count = 0;
+    while(count < 3) {
+        config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
+
+        a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+        if (a < 0) {
+            fprintf(stderr,"Error al sendto\n");
+            exit(-2);
+        }
+        sleep(V);
+        c = config_select(sock_UDP, 0);
+
+        if (c == 0) {
+            ++count;
+        } else {
+            count = 0;
+        }
+        if(c > 0 && estat_client == REGISTERED) {
+            b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
+            if(b < 0) {
+                fprintf(stderr,"Error al recvfrom\n");
+                perror(argv[0]);
+                exit(-2);
+            }
+            check_package(pdu);
+        }
+        printf("Checkpoint\n");
+        printf("%i\n", count);
+    }
+    printf("pito\n");
+    exit(-1);
     close(sock_UDP);
 }
