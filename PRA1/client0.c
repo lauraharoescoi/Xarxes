@@ -31,8 +31,6 @@ struct sockaddr_in addr_cli;
 struct sockaddr_in addr_server;
 unsigned char estat_client;
 struct hostent *ent;
-int num_tries = 0;
-int intent_reg = 0;
 
 //estats del client
 enum cli_stats {
@@ -245,7 +243,6 @@ int send_reg_req(struct pdu_UDP pdu, int socket, int num_tries, int intent_reg) 
     while (intent_reg < O && a <= 0) {
         a = register_select(socket, pdu, num_tries);    
         ++intent_reg;
-        printf("pito\n");
     
         if (intent_reg == O) {
             printf("Error en el registre\n");
@@ -302,6 +299,7 @@ int main(int argc, char *argv[]) {
     struct pdu_UDP pdu;
     char *fn;
     estat_client = NOT_REGISTERED;
+    int num_tries = 0, intent_reg = 0;
     
     
     //getopt mirar 
