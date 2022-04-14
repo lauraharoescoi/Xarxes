@@ -1,4 +1,5 @@
 from concurrent.futures import thread
+from fileinput import close
 import readline
 import sys, os, traceback, optparse
 import time, datetime
@@ -6,6 +7,8 @@ import socket
 import threading
 import ctypes
 import random
+import select
+import signal
 
 global server
 global sock_UDP
@@ -14,6 +17,7 @@ global estat_client
 IP = 0 
 
 Z = 2
+W = 3
 
 Package = {
     'REG_REQ': 0xa0,
@@ -36,6 +40,13 @@ Estat = {
     'WAIT_ACK_INFO' : 0xf4,
     'REGISTERED' : 0xf5,
     'SEND_ALIVE' : 0xf6 }
+
+def signal_handler(signal, frame):
+    sock_TCP.close()
+    sock_UDP.close()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
 
 class Server:
     def __init__(self):
@@ -108,20 +119,51 @@ def read_clients_file():
 def check_info_reg(pdu):
     return pdu.id_comunicacio == '0000000000' and pdu.dades == ''
   
-def wait_info(sock, addr):
-    sock.settimeout(Z)
-    info, addr = sock.recvfrom(1024)
-    if (info == None):
-        print('Error en el recvfrom\n')
-        Client.estat = Estat.DISCONNECTED
-        exit(-1)
-    recived_pdu = UDP_decoder(info)
-    if (recived_pdu.tipus == Package['REG_INFO']):
-        if (recived_pdu.id_communicacio == addr and recived_pdu.id_transmissor == server.id):
-            Client.estat = Estat.REGISTERED
-            Client.elements = recived_pdu.dades
-            print('Registre correcte\n')
-    
+def wait_info(sock, id_comunicacio, id_transmissor):
+    r, _, _ = select.select([sock], [], [], Z)
+    if r:
+        info, addr = sock.recvfrom(1024)
+        info = pdu_UDP_c.from_buffer_copy(info)
+        if (info == None):
+            print('Error en el recvfrom\n')
+            Client.estat = Estat.DISCONNECTED
+            exit(-1)
+        recived_pdu = UDP_decoder(info)
+        if (recived_pdu.tipus == Package['REG_INFO']):
+            if str(recived_pdu.id_comunicacio) == str(id_comunicacio) and str(recived_pdu.id_transmissor) == str(id_transmissor):
+                recived_pdu = pdu_UDP(Package['INFO_ACK'], server.id, id_comunicacio, server.TCPport)
+                sock.sendto(UDP_encoder(recived_pdu), addr)
+                print('Registre correcte\n')
+                Client.estat = Estat.REGISTERED
+                send_alives(sock, id_comunicacio, id_transmissor)
+            else:
+                recived_pdu = pdu_UDP(Package['INFO_NACK'], server.id, id_comunicacio, "id comunicacio o id transmissor incorrecte")
+                sock.sendto(UDP_encoder(recived_pdu), addr)
+                print('Registre incorrecte\n')
+                Client.estat = Estat.DISCONNECTED
+                exit(-1)
+
+def send_alives(sock, id_comunicacio, id_transmissor):
+    r, _, _ = select.select([sock], [], [], W)
+    if r:
+        info,addr = sock.recvfrom(1024)
+        info = pdu_UDP_c.from_buffer_copy(info)
+        if (info == None):
+            print('Error en el recvfrom\n')
+            Client.estat = Estat.DISCONNECTED
+            exit(-1)
+        recived_pdu = UDP_decoder(info)
+        if (recived_pdu.tipus == Package['ALIVE'] and Client.estat == Estat.REGISTERED or Client.estat == Estat.SEND_ALIVE):
+            if str(recived_pdu.id_comunicacio) == str(id_comunicacio) and str(recived_pdu.id_transmissor) == str(id_transmissor):
+                recived_pdu = pdu_UDP(Package['ALIVE'], server.id, id_comunicacio, recived_pdu.id_transmissor)
+                sock.sendto(UDP_encoder(recived_pdu), addr)
+                print('Alive correcte\n')
+                Client.estat = Estat.SEND_ALIVE
+            else:
+                recived_pdu = pdu_UDP(Package['ALIVE_REJ'], server.id, id_comunicacio, "id comunicacio o id transmissor incorrecte")
+                sock.sendto(UDP_encoder(recived_pdu), addr)
+                print('Alive incorrecte\n')
+                Client.estat = Estat.DISCONNECTED
 
 
 def UDP_process(info, addr):
@@ -129,6 +171,7 @@ def UDP_process(info, addr):
     recived_pdu = UDP_decoder(info)
     correct = False
     if recived_pdu.id_transmissor in clients_autoritzats:
+        id_transmissor = recived_pdu.id_transmissor
         if recived_pdu.tipus == Package['REG_REQ']:
             correct = check_info_reg(recived_pdu)
             sock_UDP_reg = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -139,7 +182,7 @@ def UDP_process(info, addr):
             send_pdu = pdu_UDP(Package['REG_ACK'], server.id, rand_addr, sock_UDP_reg.getsockname()[1])
             send_pdu = UDP_encoder(send_pdu)
             a = sock_UDP.sendto(send_pdu, addr)
-            #wait_info(sock_UDP_reg, rand_addr)
+            wait_info(sock_UDP_reg, rand_addr, id_transmissor)
             
     if correct == False:
         send_pdu = pdu_UDP(Package['REG_REJ'], server.id, '0000000000', 'Client no autoritzat')
@@ -161,27 +204,32 @@ def UDP_recive():
 #def TCP_process():
 
 if __name__ == '__main__':
-    server = Server()
-
-    read_server_config()
-    clients_autoritzats = read_clients_file()
-
-    sock_UDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    UDP_addr = ('', int(server.UDPport)) 
-    sock_UDP.bind(UDP_addr)
     
-    sock_TCP = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    TCP_addr = ('', int(server.TCPport))
-    sock_TCP.bind(TCP_addr)
-    sock_TCP.listen(5)
+    try:
+        server = Server()
 
-    th = threading.Thread(target = UDP_recive, args = ())
-    th.start()
-    """
-    th = threading.Thread(target = TCP_process, args = ())
-    th.start()
-    """
-    print("pito\n")
-    while True:
-        command = input()
+        read_server_config()
+        clients_autoritzats = read_clients_file()
 
+        sock_UDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        UDP_addr = ('', int(server.UDPport)) 
+        sock_UDP.bind(UDP_addr)
+        
+        sock_TCP = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        TCP_addr = ('', int(server.TCPport))
+        sock_TCP.bind(TCP_addr)
+        sock_TCP.listen(5)
+
+        th = threading.Thread(target = UDP_recive, args = ())
+        th.start()
+        """
+        th = threading.Thread(target = TCP_process, args = ())
+        th.start()
+        """
+        while True:
+            command = input()
+    except KeyboardInterrupt:
+        sock_UDP.close()
+        sock_TCP.close()
+        print("S'ha interromput la connexió")
+        os._exit(0)
