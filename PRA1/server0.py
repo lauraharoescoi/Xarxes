@@ -14,10 +14,13 @@ global server
 global sock_UDP
 global sock_TCP
 global estat_client
+
 IP = 0 
 
 Z = 2
 W = 3
+
+clients_autoritzats = {}
 
 Package = {
     'REG_REQ': 0xa0,
@@ -55,10 +58,11 @@ class Server:
         self.TCPport = None
 
 class Client:
-    def __init__(self): 
+    def __init__(self, estat): 
         self.id = None
-        self.estat = Estat.DISCONNECTED
+        self.estat = estat
         self.elements = None
+        self.portTCP = None
 
 
 class pdu_UDP:
@@ -110,10 +114,9 @@ def read_server_config():
         
 def read_clients_file():
     fc = open("bbdd_dev.dat")
-    clients_autoritzats = []
     i = 0
     for line in fc:
-        clients_autoritzats.append(line.strip('\n'))
+        clients_autoritzats[line.strip('\n')] = Client(Estat.DISCONNECTED)
     return clients_autoritzats
 
 def check_info_reg(pdu):
@@ -176,6 +179,7 @@ def UDP_process(info, addr):
             correct = check_info_reg(recived_pdu)
             sock_UDP_reg = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             rand_addr = random.randint(0000000000, 9999999999)
+            clients_autoritzats[id_transmissor].id_comunicacio = str(rand_addr)
             global IP
             IP = socket.gethostbyname("localhost")
             sock_UDP_reg.bind((IP, 0))
