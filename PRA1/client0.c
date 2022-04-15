@@ -5,6 +5,8 @@
 #include <time.h>
 #include <string.h>
 #include <sys/select.h>
+#include <sys/time.h>
+#include <stdbool.h>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -31,6 +33,8 @@ struct sockaddr_in addr_cli;
 struct sockaddr_in addr_server;
 unsigned char estat_client;
 struct hostent *ent;
+bool debug = false;
+char hora[20];
 
 //estats del client
 enum cli_stats {
@@ -98,6 +102,27 @@ void print_data_client(struct config config) {
         ++i;
     }*/
     printf("**************************************************************\n");
+
+}
+
+void print_debug(char msg[]) {
+    if(debug) {
+        time_t timer;
+        struct tm* tm_info; 
+        time(&timer); 
+        tm_info = localtime(&timer); 
+        strftime(hora, 20, "%H:%M:%S", tm_info);
+        printf("%s: DEBUG  =>  %s\n", hora, msg);
+    }
+}
+
+void print_msg(char msg[]) {
+    time_t timer;
+    struct tm* tm_info; 
+    time(&timer); 
+    tm_info = localtime(&timer); 
+    strftime(hora, 20, "%H:%M:%S", tm_info);
+    printf("%s: MSG.  =>  %s\n", hora, msg);
 
 }
 
@@ -248,17 +273,17 @@ int register_select(int socket, struct pdu_UDP pdu, int num_tries) {
 int send_reg_req(struct pdu_UDP pdu, int socket, int num_tries, int intent_reg) {
     int a = 0;
     while (intent_reg < O && a <= 0) {
-        printf(" MSG.  =>  Dispositiu passa a estat: %s, procés de subscripció: %i\n", stats_name[estat_client], intent_reg + 1); 
+        sprintf(buffer, "Dispositiu passa a estat: %s, procés de subscripció: %i", stats_name[estat_client], intent_reg + 1);
+        print_msg(buffer);
         a = register_select(socket, pdu, num_tries);    
+        printf(" MSG.  =>  Dispositiu passa a estat: %s\n", stats_name[estat_client]); 
         ++intent_reg;
-        
-    
-        if (intent_reg == O) {
-            printf("Error en el registre\n");
+    }
+    if (intent_reg == O) {
+            printf(" MSG.  =>  Superat el nombre de processos de subsctripció (3)\n");
             num_tries = 0;
             intent_reg = 0;
         } 
-    }
     return a;
 }
 
@@ -296,6 +321,7 @@ void send_alive(struct pdu_UDP pdu, int sock_UDP, struct config config_parameter
                 exit(-2);
             }
             check_package(pdu);
+            printf(" MSG.  =>  Dispositiu passa a estat: %s\n", stats_name[estat_client]); 
         }
         config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
     } while(count < 3 && estat_client == SEND_ALIVE);
@@ -348,10 +374,8 @@ int main(int argc, char *argv[]) {
                 }
                 a = send_reg_req(pdu, sock_UDP, num_tries, intent_reg);
                 check_package(pdu);
-
                 break;
             case WAIT_ACK_REG:
-                printf(" MSG.  =>  Dispositiu passa a estat: %d\n", stats_name[estat_client]); 
                 if (a > 0) {
                     b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
                     if(b < 0) {
@@ -375,8 +399,10 @@ int main(int argc, char *argv[]) {
                         check_package(pdu);
                     }
                 }
+                printf(" MSG.  =>  Dispositiu passa a estat: %s\n", stats_name[estat_client]); 
                 break;
             case WAIT_ACK_INFO:
+                printf(" MSG.  =>  Dispositiu passa a l'estat: %s\n", stats_name[estat_client]); 
                 c = config_select(sock_UDP, 2 * T);
                 if (c == 0) {
                     estat_client = NOT_REGISTERED;
@@ -391,6 +417,7 @@ int main(int argc, char *argv[]) {
                     check_package(pdu);
                     addr_server.sin_port = htons(config_parameters.server_UDP);
                 }
+                printf(" MSG.  =>  Dispositiu passa a estat: %s\n", stats_name[estat_client]); 
                 break;
             case REGISTERED:
                 config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
@@ -405,6 +432,7 @@ int main(int argc, char *argv[]) {
                 break;
         }
     }
+    printf(" MSG.  =>  Dispositiu passa a estat: %s (Sense resposta a 3 ALIVES)\n", stats_name[estat_client]); 
     exit(-1);
     close(sock_UDP);
 }
