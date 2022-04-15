@@ -43,6 +43,15 @@ enum cli_stats {
     SEND_ALIVE,
 };
 
+char *stats_name[] = {
+    [DISCONNECTED]="DISCONNECTED", 
+    [NOT_REGISTERED]="NOT_REGISTERED", 
+    [WAIT_ACK_REG]="WAIT_ACK_REG", 
+    [WAIT_INFO]="WAIT_INFO", 
+    [WAIT_ACK_INFO]="WAIT_ACK_INFO", 
+    [REGISTERED]="REGISTERED", 
+    [SEND_ALIVE]="SEND_ALIVE"};
+
 //temps d'espera
 const int T = 1;
 const int U = 2;
@@ -229,8 +238,7 @@ int register_select(int socket, struct pdu_UDP pdu, int num_tries) {
         ++num_tries;
         if(num_tries <= T * Q) {
             timeout = num_tries * T;
-        }
-        printf("intent: %i, temps: %i\n", num_tries, timeout);  
+        } 
     } while (result_select <= 0 && num_tries < N); 
     sleep(U);
     
@@ -240,8 +248,10 @@ int register_select(int socket, struct pdu_UDP pdu, int num_tries) {
 int send_reg_req(struct pdu_UDP pdu, int socket, int num_tries, int intent_reg) {
     int a = 0;
     while (intent_reg < O && a <= 0) {
+        printf(" MSG.  =>  Dispositiu passa a estat: %s, procés de subscripció: %i\n", stats_name[estat_client], intent_reg + 1); 
         a = register_select(socket, pdu, num_tries);    
         ++intent_reg;
+        
     
         if (intent_reg == O) {
             printf("Error en el registre\n");
@@ -337,11 +347,11 @@ int main(int argc, char *argv[]) {
                     a = send_reg_req(pdu, sock_UDP, num_tries, intent_reg);
                 }
                 a = send_reg_req(pdu, sock_UDP, num_tries, intent_reg);
-                
                 check_package(pdu);
 
                 break;
             case WAIT_ACK_REG:
+                printf(" MSG.  =>  Dispositiu passa a estat: %d\n", stats_name[estat_client]); 
                 if (a > 0) {
                     b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
                     if(b < 0) {

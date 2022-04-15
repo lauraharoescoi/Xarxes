@@ -58,12 +58,12 @@ class Server:
         self.TCPport = None
 
 class Client:
-    def __init__(self, estat): 
+    def __init__(self): 
         self.id = None
-        self.estat = estat
+        self.estat = Estat['DISCONNECTED']
         self.elements = None
         self.portTCP = None
-
+        self.count = 0
 
 class pdu_UDP:
     def __init__(self, tipus, id_transmissor, id_comunicacio, dades):
@@ -116,7 +116,7 @@ def read_clients_file():
     fc = open("bbdd_dev.dat")
     i = 0
     for line in fc:
-        clients_autoritzats[line.strip('\n')] = Client(Estat.DISCONNECTED)
+        clients_autoritzats[line.strip('\n')] = Client()
     return clients_autoritzats
 
 def check_info_reg(pdu):
@@ -129,7 +129,7 @@ def wait_info(sock, id_comunicacio, id_transmissor):
         info = pdu_UDP_c.from_buffer_copy(info)
         if (info == None):
             print('Error en el recvfrom\n')
-            Client.estat = Estat.DISCONNECTED
+            clients_autoritzats[info.id_transmissor].estat = Estat['DISCONNECTED']
             exit(-1)
         recived_pdu = UDP_decoder(info)
         if (recived_pdu.tipus == Package['REG_INFO']):
@@ -137,36 +137,35 @@ def wait_info(sock, id_comunicacio, id_transmissor):
                 recived_pdu = pdu_UDP(Package['INFO_ACK'], server.id, id_comunicacio, server.TCPport)
                 sock.sendto(UDP_encoder(recived_pdu), addr)
                 print('Registre correcte\n')
-                Client.estat = Estat.REGISTERED
-                send_alives(sock, id_comunicacio, id_transmissor)
+                clients_autoritzats[id_transmissor].estat = Estat['REGISTERED']
             else:
                 recived_pdu = pdu_UDP(Package['INFO_NACK'], server.id, id_comunicacio, "id comunicacio o id transmissor incorrecte")
                 sock.sendto(UDP_encoder(recived_pdu), addr)
                 print('Registre incorrecte\n')
-                Client.estat = Estat.DISCONNECTED
+                clients_autoritzats[recived_pdu.id_transmissor].estat = Estat['DISCONNECTED']
                 exit(-1)
-
-def send_alives(sock, id_comunicacio, id_transmissor):
-    r, _, _ = select.select([sock], [], [], W)
-    if r:
-        info,addr = sock.recvfrom(1024)
-        info = pdu_UDP_c.from_buffer_copy(info)
-        if (info == None):
-            print('Error en el recvfrom\n')
-            Client.estat = Estat.DISCONNECTED
+        else:
+            print('Error en el tipus de paquet\n')
+            clients_autoritzats[recived_pdu.id_transmissor].estat = Estat['DISCONNECTED']
             exit(-1)
-        recived_pdu = UDP_decoder(info)
-        if (recived_pdu.tipus == Package['ALIVE'] and Client.estat == Estat.REGISTERED or Client.estat == Estat.SEND_ALIVE):
-            if str(recived_pdu.id_comunicacio) == str(id_comunicacio) and str(recived_pdu.id_transmissor) == str(id_transmissor):
-                recived_pdu = pdu_UDP(Package['ALIVE'], server.id, id_comunicacio, recived_pdu.id_transmissor)
-                sock.sendto(UDP_encoder(recived_pdu), addr)
-                print('Alive correcte\n')
-                Client.estat = Estat.SEND_ALIVE
-            else:
-                recived_pdu = pdu_UDP(Package['ALIVE_REJ'], server.id, id_comunicacio, "id comunicacio o id transmissor incorrecte")
-                sock.sendto(UDP_encoder(recived_pdu), addr)
-                print('Alive incorrecte\n')
-                Client.estat = Estat.DISCONNECTED
+
+def send_alives(sock, id_comunicacio, id_transmissor, recived_pdu, addr):
+    if recived_pdu.tipus == Package['ALIVE'] and (clients_autoritzats[recived_pdu.id_transmissor].estat == Estat['REGISTERED'] or clients_autoritzats[recived_pdu.id_transmissor].estat == Estat['SEND_ALIVE']):
+        if str(recived_pdu.id_comunicacio) == str(id_comunicacio) and str(recived_pdu.id_transmissor) == str(id_transmissor):
+            recived_pdu = pdu_UDP(Package['ALIVE'], server.id, id_comunicacio, recived_pdu.id_transmissor)
+            print('Enviat alive\n')
+            sock.sendto(UDP_encoder(recived_pdu), addr)
+            clients_autoritzats[id_transmissor].estat = Estat['SEND_ALIVE']
+        else:
+            recived_pdu = pdu_UDP(Package['ALIVE_REJ'], server.id, id_comunicacio, "id comunicacio o id transmissor incorrecte")
+            sock.sendto(UDP_encoder(recived_pdu), addr)
+            print('Alive incorrecte\n')
+            clients_autoritzats[id_transmissor].estat = Estat['DISCONNECTED']
+            exit(-1)
+    else:
+        print('Error en el tipus de paquet\n')
+        clients_autoritzats[recived_pdu.id_transmissor].estat = Estat['DISCONNECTED']
+        exit(-1)
 
 
 def UDP_process(info, addr):
@@ -175,26 +174,36 @@ def UDP_process(info, addr):
     correct = False
     if recived_pdu.id_transmissor in clients_autoritzats:
         id_transmissor = recived_pdu.id_transmissor
-        if recived_pdu.tipus == Package['REG_REQ']:
+        if recived_pdu.tipus == Package['REG_REQ'] and clients_autoritzats[recived_pdu.id_transmissor].estat == Estat['DISCONNECTED']:
             correct = check_info_reg(recived_pdu)
-            sock_UDP_reg = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            rand_addr = random.randint(0000000000, 9999999999)
-            clients_autoritzats[id_transmissor].id_comunicacio = str(rand_addr)
-            global IP
-            IP = socket.gethostbyname("localhost")
-            sock_UDP_reg.bind((IP, 0))
-            send_pdu = pdu_UDP(Package['REG_ACK'], server.id, rand_addr, sock_UDP_reg.getsockname()[1])
-            send_pdu = UDP_encoder(send_pdu)
-            a = sock_UDP.sendto(send_pdu, addr)
-            wait_info(sock_UDP_reg, rand_addr, id_transmissor)
-            
+            if correct:
+                sock_UDP_reg = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                rand_addr = random.randint(0000000000, 9999999999)
+                clients_autoritzats[id_transmissor].id_comunicacio = str(rand_addr)
+                global IP
+                IP = socket.gethostbyname("localhost")
+                sock_UDP_reg.bind((IP, 0))
+                send_pdu = pdu_UDP(Package['REG_ACK'], server.id, rand_addr, sock_UDP_reg.getsockname()[1])
+                send_pdu = UDP_encoder(send_pdu)
+                a = sock_UDP.sendto(send_pdu, addr)
+                clients_autoritzats[recived_pdu.id_transmissor].estat = Estat['WAIT_INFO']
+                wait_info(sock_UDP_reg, rand_addr, id_transmissor)
+        elif recived_pdu.tipus == Package['ALIVE']:
+            correct = True
+            send_alives(sock_UDP, recived_pdu.id_comunicacio, id_transmissor, recived_pdu, addr)
+        else:
+            print('Error en el estat\n')
+            clients_autoritzats[recived_pdu.id_transmissor].estat = Estat['DISCONNECTED']
+            exit(-1)
+
+        
     if correct == False:
         send_pdu = pdu_UDP(Package['REG_REJ'], server.id, '0000000000', 'Client no autoritzat')
         send_pdu = UDP_encoder(send_pdu)
         a = sock_UDP.sendto(send_pdu, addr)
         if a < 0:
             print('Error en el sendto\n')
-            Client.estat = Estat.DISCONNECTED
+            clients_autoritzats[info.id_transmissor].estat = Estat['DISCONNECTED']
             exit(-1)
 
 def UDP_recive():
@@ -202,8 +211,6 @@ def UDP_recive():
         info, addr = sock_UDP.recvfrom(1024)
         th = threading.Thread(target = UDP_process, args = (info, addr,))
         th.start()
-
-
 
 #def TCP_process():
 
