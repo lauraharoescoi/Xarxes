@@ -7,7 +7,7 @@
 #include <sys/select.h>
 #include <sys/time.h>
 #include <stdbool.h>
-
+#include <getopt.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -275,12 +275,14 @@ int send_reg_req(struct pdu_UDP pdu, int socket, int num_tries, int intent_reg) 
     while (intent_reg < O && a <= 0) {
         sprintf(buffer, "Dispositiu passa a estat: %s, procés de subscripció: %i", stats_name[estat_client], intent_reg + 1);
         print_msg(buffer);
+        sprintf(buffer, "Dispositiu passa a estat: WAIT_ACK_REG"); 
+        print_msg(buffer);
         a = register_select(socket, pdu, num_tries);    
-        printf(" MSG.  =>  Dispositiu passa a estat: %s\n", stats_name[estat_client]); 
         ++intent_reg;
     }
     if (intent_reg == O) {
-            printf(" MSG.  =>  Superat el nombre de processos de subsctripció (3)\n");
+            sprintf(buffer, "Superat el nombre de processos de subsctripció (3)");
+            print_msg(buffer);
             num_tries = 0;
             intent_reg = 0;
         } 
@@ -320,8 +322,6 @@ void send_alive(struct pdu_UDP pdu, int sock_UDP, struct config config_parameter
                 fprintf(stderr,"Error al recvfrom\n");
                 exit(-2);
             }
-            check_package(pdu);
-            printf(" MSG.  =>  Dispositiu passa a estat: %s\n", stats_name[estat_client]); 
         }
         config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
     } while(count < 3 && estat_client == SEND_ALIVE);
@@ -335,27 +335,24 @@ int main(int argc, char *argv[]) {
     char *fn;
     estat_client = NOT_REGISTERED;
     int num_tries = 0, intent_reg = 0;
+    int option;
     
-    
-    //getopt mirar 
-
-    switch(*argv[1]) {
+    while((option = getopt(argc, argv, "cd")) != -1) {
+        switch (option) {
         case 'c':
-            if (argv[2] != NULL) { 
-                fn = argv[2];
-            } else {
-                fn = "client.cfg";
-            }
+            if (argv[2] != NULL) fn = argv[2];
+            else fn = "client.cfg"; 
             break;
-
         case 'd':
-            printf("DEBUG TIME!! \n");
+            debug = true;
+            fn = "client.cfg";
             break;
-
+        case '?':
+            printf("Error en els paràmetres d'entrada.\n");
         default:
             break;
+        }
     }
-
     read_parameters(fn, &config_parameters);
     print_data_client(config_parameters);
 
@@ -399,10 +396,10 @@ int main(int argc, char *argv[]) {
                         check_package(pdu);
                     }
                 }
-                printf(" MSG.  =>  Dispositiu passa a estat: %s\n", stats_name[estat_client]); 
+                sprintf(buffer, "Dispositiu passa a estat: %s", stats_name[estat_client]); 
+                print_msg(buffer);
                 break;
             case WAIT_ACK_INFO:
-                printf(" MSG.  =>  Dispositiu passa a l'estat: %s\n", stats_name[estat_client]); 
                 c = config_select(sock_UDP, 2 * T);
                 if (c == 0) {
                     estat_client = NOT_REGISTERED;
@@ -417,22 +414,29 @@ int main(int argc, char *argv[]) {
                     check_package(pdu);
                     addr_server.sin_port = htons(config_parameters.server_UDP);
                 }
-                printf(" MSG.  =>  Dispositiu passa a estat: %s\n", stats_name[estat_client]); 
+                sprintf(buffer, "Dispositiu passa a estat: %s", stats_name[estat_client]); 
+                print_msg(buffer);
+                sprintf(buffer, "Obert por TCP %d per la comunicació amb el servidor", config_parameters.local_TCP);
+                print_msg(buffer);
                 break;
             case REGISTERED:
                 config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
                 send_alive(pdu, sock_UDP, config_parameters);
+                check_package(pdu);
+                sprintf(buffer, "Dispositiu passa a estat: %s", stats_name[estat_client]); 
+                print_msg(buffer);
                 break;
             case SEND_ALIVE:
                 config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
                 send_alive(pdu, sock_UDP, config_parameters);
                 estat_client = NOT_REGISTERED;
+                sprintf(buffer, "Dispositiu passa a estat: DISCONNECTED (Sense resposta a 3 ALIVES)"); 
+                print_msg(buffer);
                 break;
             default:
                 break;
         }
     }
-    printf(" MSG.  =>  Dispositiu passa a estat: %s (Sense resposta a 3 ALIVES)\n", stats_name[estat_client]); 
     exit(-1);
     close(sock_UDP);
 }
