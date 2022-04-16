@@ -16,19 +16,6 @@
 
 char buffer[BUFFSIZE + 2];
 
-unsigned char REG_REQ = 0xa0;
-unsigned char REG_ACK = 0xa1;
-unsigned char REG_NACK = 0xa2;
-unsigned char REG_REJ = 0xa3;
-unsigned char REG_INFO = 0xa4;
-unsigned char INFO_ACK = 0xa5;
-unsigned char INFO_NACK = 0xa6;
-unsigned char INFO_REJ = 0xa7;
-
-unsigned char ALIVE = 0xb0;
-unsigned char ALIVE_NACK = 0xb1;
-unsigned char ALIVE_REJ = 0xb2;
-
 struct sockaddr_in addr_cli;
 struct sockaddr_in addr_server;
 unsigned char estat_client;
@@ -36,13 +23,40 @@ struct hostent *ent;
 bool debug = false;
 char hora[20];
 
+enum package {
+    REG_REQ = 0xa0,
+    REG_ACK,
+    REG_NACK,
+    REG_REJ,
+    REG_INFO,   
+    INFO_ACK,
+    INFO_NACK,
+    INFO_REJ,
+    ALIVE = 0xb0,
+    ALIVE_NACK,
+    ALIVE_REJ,
+};
+
+char *package_name[] = {
+    [REG_REQ] = "REG_REQ",
+    [REG_ACK] = "REG_ACK",
+    [REG_NACK] = "REG_NACK",
+    [REG_REJ] = "REG_REJ",
+    [REG_INFO] = "REG_INFO",
+    [INFO_ACK] = "INFO_ACK",
+    [INFO_NACK] = "INFO_NACK",
+    [INFO_REJ] = "INFO_REJ",
+    [ALIVE] = "ALIVE",
+    [ALIVE_NACK] = "ALIVE_NACK",
+    [ALIVE_REJ] = "ALIVE_REJ"};
+
 //estats del client
 enum cli_stats {
-    DISCONNECTED, 
-    NOT_REGISTERED, 
-    WAIT_ACK_REG, 
-    WAIT_INFO, 
-    WAIT_ACK_INFO, 
+    DISCONNECTED = 0xf0, 
+    NOT_REGISTERED,
+    WAIT_ACK_REG,
+    WAIT_INFO,
+    WAIT_ACK_INFO , 
     REGISTERED, 
     SEND_ALIVE,
 };
@@ -225,11 +239,22 @@ void bind_sock(int socket, struct config config_parameters) {
     addr_server.sin_port = htons(config_parameters.server_UDP);
 }
 
-void config_pdu_UDP(struct pdu_UDP *pdu, char paquet, char id[], char id_comunicacio[], char dades[]) {
+void config_pdu_UDP(struct pdu_UDP *pdu, int paquet, char id[], char id_comunicacio[], char dades[]) {
     pdu->tipus = paquet;
     strcpy(pdu->id_comunicacio, id_comunicacio);
     strcpy(pdu->id_transmissor, id);
     strcpy(pdu->dades, dades);
+}
+
+void check_package(struct pdu_UDP pdu) {
+    if(pdu.tipus == REG_ACK) estat_client = WAIT_ACK_REG;
+    if(pdu.tipus == REG_REQ) estat_client = WAIT_ACK_REG;
+    if(pdu.tipus == REG_NACK) estat_client = NOT_REGISTERED;
+    if(pdu.tipus == REG_REJ) estat_client = NOT_REGISTERED;
+    if(pdu.tipus == REG_INFO) estat_client = WAIT_ACK_INFO;
+    if(pdu.tipus == INFO_ACK) estat_client = REGISTERED;
+    if(pdu.tipus == ALIVE) estat_client = SEND_ALIVE;
+    if(pdu.tipus == ALIVE_REJ) estat_client = NOT_REGISTERED;
 }
 
 int config_select(int socket, int timeout){
@@ -254,7 +279,15 @@ int register_select(int socket, struct pdu_UDP pdu, int num_tries) {
     int a;
     
     do {
-        a = sendto(socket, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+        a = sendto(socket, &pdu, sizeof(struct pdu_UDP), 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+        sprintf(buffer, "Enviat: bytes=%d, paquet=%s, id=%s, id. com.=%s, dades=%s", a, package_name[pdu.tipus], pdu.id_transmissor, pdu.id_comunicacio, pdu.dades);
+        print_debug(buffer);
+        if(estat_client != WAIT_ACK_REG) {
+            check_package(pdu);
+            sprintf(buffer, "Dispositiu passa a estat: %s", stats_name[estat_client]);
+            print_msg(buffer);
+        }
+        check_package(pdu);
         if (a < 0) {
             fprintf(stderr,"Error al sendto\n");
             exit(-2);
@@ -275,35 +308,28 @@ int send_reg_req(struct pdu_UDP pdu, int socket, int num_tries, int intent_reg) 
     while (intent_reg < O && a <= 0) {
         sprintf(buffer, "Dispositiu passa a estat: %s, procés de subscripció: %i", stats_name[estat_client], intent_reg + 1);
         print_msg(buffer);
-        sprintf(buffer, "Dispositiu passa a estat: WAIT_ACK_REG"); 
-        print_msg(buffer);
         a = register_select(socket, pdu, num_tries);    
+
         ++intent_reg;
     }
-    if (intent_reg == O) {
+    if (intent_reg >= O) {
             sprintf(buffer, "Superat el nombre de processos de subsctripció (3)");
             print_msg(buffer);
             num_tries = 0;
             intent_reg = 0;
+            exit(-1);
         } 
     return a;
 }
 
-void check_package(struct pdu_UDP pdu) {
-    if(pdu.tipus == REG_ACK) estat_client = WAIT_ACK_REG;
-    if(pdu.tipus == REG_REQ) estat_client = WAIT_ACK_REG;
-    if(pdu.tipus == REG_NACK) estat_client = NOT_REGISTERED;
-    if(pdu.tipus == REG_REJ) estat_client = NOT_REGISTERED;
-    if(pdu.tipus == REG_INFO) estat_client = WAIT_ACK_INFO;
-    if(pdu.tipus == INFO_ACK) estat_client = REGISTERED;
-    if(pdu.tipus == ALIVE) estat_client = SEND_ALIVE;
-    if(pdu.tipus == ALIVE_REJ) estat_client = NOT_REGISTERED;
-}
 
 void send_alive(struct pdu_UDP pdu, int sock_UDP, struct config config_parameters) {
     int count = 0, a = 0, b = 0, c = 0;
     do {    
-        a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+        a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP), 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+        sprintf(buffer, "Enviat: bytes=%d, paquet=%s, id=%s, id. com.=%s, dades=%s", a, package_name[pdu.tipus], pdu.id_transmissor, pdu.id_comunicacio, pdu.dades);
+        print_debug(buffer);
+
         if (a < 0) {
             fprintf(stderr,"Error al sendto\n");
             exit(-2);
@@ -317,7 +343,9 @@ void send_alive(struct pdu_UDP pdu, int sock_UDP, struct config config_parameter
             count = 0;
         }
         if(c > 0) {
-            b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
+            b = recvfrom(sock_UDP, &pdu, sizeof(pdu), 0, (struct sockaddr *)0,(int)0);
+            sprintf(buffer, "Rebut: bytes=%d, paquet=%s, id=%s, id. com.=%s, dades=%s", b, package_name[pdu.tipus], pdu.id_transmissor, pdu.id_comunicacio, pdu.dades);
+            print_debug(buffer);
             if(b < 0) {
                 fprintf(stderr,"Error al recvfrom\n");
                 exit(-2);
@@ -359,22 +387,27 @@ int main(int argc, char *argv[]) {
     sock_UDP = config_sockets(config_parameters);
     
     bind_sock(sock_UDP, config_parameters);
+    sprintf(buffer, "Inici bucle de servei equip : %s", config_parameters.id);
+    print_debug(buffer);
 
     while (estat_client != DISCONNECTED) {
         switch(estat_client) {
             case NOT_REGISTERED:
-                config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
                 if (pdu.tipus == REG_REJ){
                     num_tries = 0;
-                    intent_reg = 0;
+                    intent_reg += 1;
+                    config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
                     a = send_reg_req(pdu, sock_UDP, num_tries, intent_reg);
                 }
+                config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
                 a = send_reg_req(pdu, sock_UDP, num_tries, intent_reg);
                 check_package(pdu);
                 break;
             case WAIT_ACK_REG:
                 if (a > 0) {
-                    b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
+                    b = recvfrom(sock_UDP, &pdu, sizeof(pdu), 0, (struct sockaddr *)0,(int)0);
+                    sprintf(buffer, "Rebut: bytes=%d, paquet=%s, id=%s, id. com.=%s, dades=%s", b, package_name[pdu.tipus], pdu.id_transmissor, pdu.id_comunicacio, pdu.dades);
+                    print_debug(buffer);
                     if(b < 0) {
                         fprintf(stderr,"Error al recvfrom\n");
                         perror(argv[0]);
@@ -388,7 +421,9 @@ int main(int argc, char *argv[]) {
 
                         config_pdu_UDP(&pdu, REG_INFO, config_parameters.id, pdu.id_comunicacio, buffer);
 
-                        a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP) + 1, 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+                        a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP), 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
+                        sprintf(buffer, "Enviat: bytes=%d, paquet=%s, id=%s, id. com.=%s, dades=%s", a, package_name[pdu.tipus], pdu.id_transmissor, pdu.id_comunicacio, pdu.dades);
+                        print_debug(buffer);
                         if (a < 0) {
                             fprintf(stderr,"Error al sendto\n");
                             exit(-2);
@@ -405,7 +440,9 @@ int main(int argc, char *argv[]) {
                     estat_client = NOT_REGISTERED;
                 }
                 if(c > 0 && estat_client == WAIT_ACK_INFO) {
-                    b = recvfrom(sock_UDP, &pdu, sizeof(pdu) + 1, 0, (struct sockaddr *)0,(int)0);
+                    b = recvfrom(sock_UDP, &pdu, sizeof(pdu), 0, (struct sockaddr *)0,(int)0);
+                    sprintf(buffer, "Rebut: bytes=%d, paquet=%s, id=%s, id. com.=%s, dades=%s", b, package_name[pdu.tipus], pdu.id_transmissor, pdu.id_comunicacio, pdu.dades);
+                    print_debug(buffer);
                     if(b < 0) {
                         fprintf(stderr,"Error al recvfrom\n");
                         perror(argv[0]);
