@@ -11,6 +11,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <pthread.h>
 
 #define BUFFSIZE 255
 
@@ -22,6 +23,7 @@ unsigned char estat_client;
 struct hostent *ent;
 bool debug = false;
 char hora[20];
+int elements = 0;
 
 enum package {
     REG_REQ = 0xa0,
@@ -104,18 +106,18 @@ typedef struct pdu_UDP {
     char dades[61];
 } pdu_UDP;
 
-void print_data_client(struct config config) {
+struct config print_config;
+
+void print_data_client(struct config config, int elements) {
     printf("********************* DADES DISPOSITIU ***********************\n\n");
     printf("  Identificador: %s\n", config.id);
-    printf("  Estat: DISCONNECTED\n\n");
+    printf("  Estat: %s\n\n", stats_name[estat_client]);
     printf("    Param       Valor\n");
     printf("    -------     --------------\n");
-    /*int i = 0;
-    while(i < sizeof(config.elements)) {
-        printf("    %s      NONE\n", config.elements_str);
-        ++i;
-    }*/
-    printf("**************************************************************\n");
+    for(int i = 0; i < elements; i++) {
+        printf("    %s-%d-%c     NONE\n", config.elements[i].magnitud, config.elements[i].ordinal, config.elements[i].tipus);
+    }
+    printf("\n***************************************************************\n"); 
 
 }
 
@@ -152,7 +154,7 @@ void save_elements(char * elements, int i, struct config *config_parameters) {
     config_parameters->elements[i].tipus = element[0];
 }
 
-void read_elements(char * values, struct config *config_parameters) {
+int read_elements(char * values, struct config *config_parameters) {
     char * elements[5];
     strcpy(config_parameters->elements_str, values);
     int i = 0;
@@ -165,11 +167,13 @@ void read_elements(char * values, struct config *config_parameters) {
     for(int j = 0; j < i; j++) {
         save_elements(elements[j], j, config_parameters);
     }
+    return i;
 }
 
-void read_parameters(char fn[64], struct config *config_parameters) {
+int read_parameters(char fn[64], struct config *config_parameters) {
     FILE *file = fopen(fn, "r");
     char *values;
+    int elements = 0;
     int line = 1;
     while(fgets(buffer, BUFFSIZE, (FILE*) file) != NULL) {
         values = strtok(buffer, " ");
@@ -184,7 +188,7 @@ void read_parameters(char fn[64], struct config *config_parameters) {
                 break;
             
             case 2:
-                read_elements(values, config_parameters);
+                elements = read_elements(values, config_parameters);
                 break;
             
             case 3:
@@ -205,6 +209,7 @@ void read_parameters(char fn[64], struct config *config_parameters) {
         line += 1;
     }
     fclose(file);
+    return elements;
 }
 
 int config_sockets(struct config config_parameters) {
@@ -322,6 +327,17 @@ int send_reg_req(struct pdu_UDP pdu, int socket, int num_tries, int intent_reg) 
     return a;
 }
 
+void *command_stats() {
+    while((fgets(buffer, sizeof(buffer), stdin) != NULL)) {
+        if (strcmp(buffer, "quit") == 0) {
+            exit(-1);
+        } else if (strcmp(buffer, "stat") == 0) {
+            print_data_client(print_config, elements);
+        } else {
+            printf("Comanda no vàlida\n");
+        }
+    }
+}
 
 void send_alive(struct pdu_UDP pdu, int sock_UDP, struct config config_parameters) {
     int count = 0, a = 0, b = 0, c = 0;
@@ -355,15 +371,18 @@ void send_alive(struct pdu_UDP pdu, int sock_UDP, struct config config_parameter
     } while(count < 3 && estat_client == SEND_ALIVE);
 }
 
+
 int main(int argc, char *argv[]) {
     
     struct config config_parameters;
     int sock_UDP, a = 0, b = 0, c = 0;
     struct pdu_UDP pdu;
     char *fn;
-    estat_client = NOT_REGISTERED;
+    estat_client = DISCONNECTED;
     int num_tries = 0, intent_reg = 0;
     int option;
+    pthread_t thread_id = (pthread_t) NULL;
+    
     
     while((option = getopt(argc, argv, "cd")) != -1) {
         switch (option) {
@@ -381,15 +400,17 @@ int main(int argc, char *argv[]) {
             break;
         }
     }
-    read_parameters(fn, &config_parameters);
-    print_data_client(config_parameters);
+    elements = read_parameters(fn, &config_parameters);
+    print_config = config_parameters;
+    print_data_client(config_parameters, elements);
 
     sock_UDP = config_sockets(config_parameters);
     
     bind_sock(sock_UDP, config_parameters);
     sprintf(buffer, "Inici bucle de servei equip : %s", config_parameters.id);
     print_debug(buffer);
-
+    estat_client = NOT_REGISTERED;
+    
     while (estat_client != DISCONNECTED) {
         switch(estat_client) {
             case NOT_REGISTERED:
@@ -465,6 +486,7 @@ int main(int argc, char *argv[]) {
                 break;
             case SEND_ALIVE:
                 config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
+                pthread_create(&thread_id, NULL, command_stats, NULL);
                 send_alive(pdu, sock_UDP, config_parameters);
                 estat_client = NOT_REGISTERED;
                 sprintf(buffer, "Dispositiu passa a estat: DISCONNECTED (Sense resposta a 3 ALIVES)"); 
