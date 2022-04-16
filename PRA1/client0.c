@@ -329,14 +329,15 @@ int send_reg_req(struct pdu_UDP pdu, int socket, int num_tries, int intent_reg) 
 
 void *command_stats() {
     while((fgets(buffer, sizeof(buffer), stdin) != NULL)) {
-        if (strcmp(buffer, "quit") == 0) {
+        if (strcmp(buffer, "quit\n") == 0) {
             exit(-1);
-        } else if (strcmp(buffer, "stat") == 0) {
+        } else if (strcmp(buffer, "stat\n") == 0) {
             print_data_client(print_config, elements);
         } else {
             printf("Comanda no vàlida\n");
         }
     }
+    pthread_exit(NULL);
 }
 
 void send_alive(struct pdu_UDP pdu, int sock_UDP, struct config config_parameters) {
