@@ -312,17 +312,18 @@ def UDP_process(info, addr):
             clients_autoritzats[info.id_transmissor].estat = Estat['DISCONNECTED']
             exit(-1)
 
+#funcio que crea el thread per a gestionar els paquets UDP
 def UDP_recive():
     while True:
         info, addr = sock_UDP.recvfrom(1024)
         th = threading.Thread(target = UDP_process, args = (info, addr,))
         th.start()
 
-#def TCP_process():
 
 if __name__ == '__main__':
     
     try:
+        #configuracio de les dades del servidor
         fs, fc = read_command()
         server = Server()
         read_server_config(fs)
@@ -330,6 +331,7 @@ if __name__ == '__main__':
         if(d):
             print_list()
 
+        #configuracio dels sockets
         sock_UDP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         UDP_addr = ('', int(server.UDPport)) 
         sock_UDP.bind(UDP_addr)
@@ -343,20 +345,22 @@ if __name__ == '__main__':
         buffer = 'Socket TPC actiu'
         print_debug(buffer)
 
+        #creacio de thread
         th = threading.Thread(target = UDP_recive, args = ())
         buffer = 'Creat fill per gestionar la BBDD del dispositiu'
         print_debug(buffer)
         buffer = 'Establert temporitzador per la gestió de la BBDD'
         print_msg(buffer)
         th.start()
-        
+
+        #llegir les comandes pel terminal
         while True:
             command = input()
             if command == 'quit':
                 signal.raise_signal(signal.SIGINT)
             elif command == 'list':
                 print_list()
-            
+    #que passsa si es fa control + c o si es crida la funcio quit        
     except KeyboardInterrupt:
         sock_UDP.close()
         sock_TCP.close()
