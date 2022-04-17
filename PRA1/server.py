@@ -259,7 +259,6 @@ def UDP_process(info, addr):
     buffer = "Rebut: bytes= 84 , comanda= {} , Id.= {} , Id. Com.= {} , Dades= {}".format(to_string(recived_pdu.tipus), recived_pdu.id_transmissor, recived_pdu.id_comunicacio, recived_pdu.dades)
     print_debug(buffer)
     if recived_pdu.id_transmissor in clients_autoritzats:
-        #clients_autoritzats[info.id_transmissor].ip = addr[0]
         id_transmissor = recived_pdu.id_transmissor
         if recived_pdu.tipus == Package['REG_REQ'] and clients_autoritzats[recived_pdu.id_transmissor].estat == Estat['DISCONNECTED']:
             correct = check_info_reg(recived_pdu)
