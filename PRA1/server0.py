@@ -127,20 +127,17 @@ class pdu_UDP_c(ctypes.Structure):
 
 def read_command():
     argv = sys.argv
+    fs = 'server.cfg'
+    fc = 'bbdd_dev.dat'
     while argv:
         if argv[0] == '-c':
             fs = argv[1]
-            fc = 'bbdd_dev.dat'
-        if argv[0] == '-d':
+        elif argv[0] == '-d':
             global d
             d = True
-            fs = 'server.cfg'
-            fc = 'bbdd_dev.dat'
-        if argv[0] == '-u':
-            fs = 'server.cfg'
+        elif argv[0] == '-u':
             fc = argv[1]
         argv = argv[1:]
-    
     return fs, fc
 
 def print_list():
@@ -210,21 +207,21 @@ def wait_info(sock, id_comunicacio, id_transmissor):
         print_msg(buffer)
         if (recived_pdu.tipus == Package['REG_INFO']):
             if str(recived_pdu.id_comunicacio) == str(id_comunicacio) and str(recived_pdu.id_transmissor) == str(id_transmissor):
+                clients_autoritzats[id_transmissor].estat = Estat['REGISTERED']
                 recived_pdu = pdu_UDP(Package['INFO_ACK'], server.id, id_comunicacio, server.TCPport)
                 sock.sendto(UDP_encoder(recived_pdu), addr)
                 buffer = "Enviat: bytes= 84 , comanda= {} , Id.= {} , Id. Com.= {} , Dades= {}".format(to_string(recived_pdu.tipus), recived_pdu.id_transmissor, recived_pdu.id_comunicacio, recived_pdu.dades)
                 print_debug(buffer)
                 buffer = "Dispositiu: {} , passa a l'estat: {}".format(id_transmissor, to_string(Estat['REGISTERED']))
                 print_msg(buffer)
-                clients_autoritzats[id_transmissor].estat = Estat['REGISTERED']
             else:
+                clients_autoritzats[recived_pdu.id_transmissor].estat = Estat['DISCONNECTED']
                 recived_pdu = pdu_UDP(Package['INFO_NACK'], server.id, id_comunicacio, "id comunicacio o id transmissor incorrecte")
                 sock.sendto(UDP_encoder(recived_pdu), addr)
                 buffer = "Enviat: bytes= 84 , comanda= {} , Id.= {} , Id. Com.= {} , Dades= {}".format(to_string(recived_pdu.tipus), recived_pdu.id_transmissor, recived_pdu.id_comunicacio, recived_pdu.dades)
                 print_debug(buffer)
                 buffer = "Dispositiu: {} , passa a l'estat: {}".format(id_transmissor, to_string(Estat['DISCONNECTED']))
                 print_msg(buffer)
-                clients_autoritzats[recived_pdu.id_transmissor].estat = Estat['DISCONNECTED']
                 exit(-1)
         else:
             print('Error en el tipus de paquet\n')
@@ -233,7 +230,7 @@ def wait_info(sock, id_comunicacio, id_transmissor):
 
 def send_alives(sock, id_comunicacio, id_transmissor, recived_pdu, addr):
     if recived_pdu.tipus == Package['ALIVE'] and (clients_autoritzats[recived_pdu.id_transmissor].estat == Estat['REGISTERED'] or clients_autoritzats[recived_pdu.id_transmissor].estat == Estat['SEND_ALIVE']):
-        if str(recived_pdu.id_comunicacio) == str(id_comunicacio) and str(recived_pdu.id_transmissor) == str(id_transmissor):
+        if str(recived_pdu.id_comunicacio) == str(id_comunicacio) and str(recived_pdu.id_transmissor) == str(id_transmissor) and str(recived_pdu.dades) == '':
             if (clients_autoritzats[recived_pdu.id_transmissor].estat == Estat['REGISTERED']):
                 buffer = "Dispositiu: {} , passa a l'estat: {}".format(id_transmissor, to_string(Estat['SEND_ALIVE']))
                 print_msg(buffer)
@@ -284,7 +281,7 @@ def UDP_process(info, addr):
             correct = True
             send_alives(sock_UDP, recived_pdu.id_comunicacio, id_transmissor, recived_pdu, addr)
         else:
-            print('Error en el estat\n')
+            print_msg('Error en el estat\n')
             clients_autoritzats[recived_pdu.id_transmissor].estat = Estat['DISCONNECTED']
             exit(-1)
 

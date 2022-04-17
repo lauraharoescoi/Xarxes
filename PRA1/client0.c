@@ -1,3 +1,9 @@
+/*----------------------------
+    Pràctica 1 de Xarxes
+    Autora: Laura Haro Escoi
+    Data: 17/04/2022
+------------------------------*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -17,14 +23,17 @@
 
 char buffer[BUFFSIZE + 2];
 
+// inicialització de variables globals
 struct sockaddr_in addr_cli;
 struct sockaddr_in addr_server;
 unsigned char estat_client;
 struct hostent *ent;
+struct config print_config;
 bool debug = false;
 char hora[20];
 int elements = 0;
 
+// enum per al tipus de packets
 enum package {
     REG_REQ = 0xa0,
     REG_ACK,
@@ -39,6 +48,7 @@ enum package {
     ALIVE_REJ,
 };
 
+// array per a poder imprimir en forma de string els packets
 char *package_name[] = {
     [REG_REQ] = "REG_REQ",
     [REG_ACK] = "REG_ACK",
@@ -52,7 +62,7 @@ char *package_name[] = {
     [ALIVE_NACK] = "ALIVE_NACK",
     [ALIVE_REJ] = "ALIVE_REJ"};
 
-//estats del client
+//enum dels estats del client
 enum cli_stats {
     DISCONNECTED = 0xf0, 
     NOT_REGISTERED,
@@ -63,6 +73,7 @@ enum cli_stats {
     SEND_ALIVE,
 };
 
+//array per a poder imprimir en forma de string els estats del client
 char *stats_name[] = {
     [DISCONNECTED]="DISCONNECTED", 
     [NOT_REGISTERED]="NOT_REGISTERED", 
@@ -72,7 +83,7 @@ char *stats_name[] = {
     [REGISTERED]="REGISTERED", 
     [SEND_ALIVE]="SEND_ALIVE"};
 
-//temps d'espera
+//constants pel temps d'espera
 const int T = 1;
 const int U = 2;
 const int N = 8;
@@ -106,8 +117,7 @@ typedef struct pdu_UDP {
     char dades[61];
 } pdu_UDP;
 
-struct config print_config;
-
+//funcio per a imprimir l'estat del client i els seus elements
 void print_data_client(struct config config, int elements) {
     printf("********************* DADES DISPOSITIU ***********************\n\n");
     printf("  Identificador: %s\n", config.id);
@@ -121,6 +131,7 @@ void print_data_client(struct config config, int elements) {
 
 }
 
+//funció per a imprimir els missatges en el mode debug
 void print_debug(char msg[]) {
     if(debug) {
         time_t timer;
@@ -132,6 +143,7 @@ void print_debug(char msg[]) {
     }
 }
 
+//funció per a imprimir els missatges sense mode debug
 void print_msg(char msg[]) {
     time_t timer;
     struct tm* tm_info; 
@@ -142,6 +154,7 @@ void print_msg(char msg[]) {
 
 }
 
+//funció auxiliar de read_elements per a guardar els elements en un struct
 void save_elements(char * elements, int i, struct config *config_parameters) {
     char * element;
     element = strtok(elements, "-");
@@ -154,6 +167,7 @@ void save_elements(char * elements, int i, struct config *config_parameters) {
     config_parameters->elements[i].tipus = element[0];
 }
 
+//funció auxiliar de read_parametres per a guardar tots els elements per separat
 int read_elements(char * values, struct config *config_parameters) {
     char * elements[5];
     strcpy(config_parameters->elements_str, values);
@@ -170,6 +184,7 @@ int read_elements(char * values, struct config *config_parameters) {
     return i;
 }
 
+//funció per a llegir els fitxers de configuració i guardar les dades en un struct config
 int read_parameters(char fn[64], struct config *config_parameters) {
     FILE *file = fopen(fn, "r");
     char *values;
@@ -212,6 +227,7 @@ int read_parameters(char fn[64], struct config *config_parameters) {
     return elements;
 }
 
+//funció per a configurar els sockets
 int config_sockets(struct config config_parameters) {
     ent = gethostbyname(config_parameters.server_name);
     if(!ent) {
@@ -233,6 +249,8 @@ int config_sockets(struct config config_parameters) {
 
     return sock_UDP;
 }
+
+//funció per a fer un binding dels sockets
 void bind_sock(int socket, struct config config_parameters) {
     if(bind (socket, (struct sockaddr *) &addr_cli, sizeof(struct sockaddr_in)) < 0) {
 		fprintf(stderr,"No puc fer el binding del socket!!!\n");
@@ -244,6 +262,7 @@ void bind_sock(int socket, struct config config_parameters) {
     addr_server.sin_port = htons(config_parameters.server_UDP);
 }
 
+//funció per a configurar la pdu del tipus de paquet que vulguem enviar
 void config_pdu_UDP(struct pdu_UDP *pdu, int paquet, char id[], char id_comunicacio[], char dades[]) {
     pdu->tipus = paquet;
     strcpy(pdu->id_comunicacio, id_comunicacio);
@@ -251,6 +270,7 @@ void config_pdu_UDP(struct pdu_UDP *pdu, int paquet, char id[], char id_comunica
     strcpy(pdu->dades, dades);
 }
 
+//funcio que ens canvia l'estat del client depenent del tipus de paquets que ens arribin o enviem
 void check_package(struct pdu_UDP pdu) {
     if(pdu.tipus == REG_ACK) estat_client = WAIT_ACK_REG;
     if(pdu.tipus == REG_REQ) estat_client = WAIT_ACK_REG;
@@ -262,6 +282,7 @@ void check_package(struct pdu_UDP pdu) {
     if(pdu.tipus == ALIVE_REJ) estat_client = NOT_REGISTERED;
 }
 
+//funció auxiliar de register_select per a configurar el select segons un temps d'espera
 int config_select(int socket, int timeout){
     struct timeval time;
     fd_set fd;
@@ -278,6 +299,7 @@ int config_select(int socket, int timeout){
     return result;
 }
 
+//funcio per al select del registre
 int register_select(int socket, struct pdu_UDP pdu, int num_tries) {
     int timeout = T;
     int result_select = 0;
@@ -308,6 +330,7 @@ int register_select(int socket, struct pdu_UDP pdu, int num_tries) {
     return result_select;
 }
 
+//funció per a enviar un REG_REQ segons el proces de subscripcio en el que ens trobem
 int send_reg_req(struct pdu_UDP pdu, int socket, int num_tries, int intent_reg) {
     int a = 0;
     while (intent_reg < O && a <= 0) {
@@ -327,6 +350,7 @@ int send_reg_req(struct pdu_UDP pdu, int socket, int num_tries, int intent_reg) 
     return a;
 }
 
+//funció per a llegir les comandes del terminal després d'entrar en l'estat SEND_ALIVE
 void *command_stats() {
     while((fgets(buffer, sizeof(buffer), stdin) != NULL)) {
         if (strcmp(buffer, "quit\n") == 0) {
@@ -340,6 +364,7 @@ void *command_stats() {
     pthread_exit(NULL);
 }
 
+//funció per a enviar els paquets ALIVE 
 void send_alive(struct pdu_UDP pdu, int sock_UDP, struct config config_parameters) {
     int count = 0, a = 0, b = 0, c = 0;
     do {    
@@ -374,47 +399,53 @@ void send_alive(struct pdu_UDP pdu, int sock_UDP, struct config config_parameter
 
 
 int main(int argc, char *argv[]) {
-    
+    //variables del main
     struct config config_parameters;
     int sock_UDP, a = 0, b = 0, c = 0;
     struct pdu_UDP pdu;
-    char *fn;
+    char fn[64] = "client.cfg";
     estat_client = DISCONNECTED;
     int num_tries = 0, intent_reg = 0;
     int option;
     pthread_t thread_id = (pthread_t) NULL;
     
-    
+    //llegim el tipus de comanda que es vol fer
     while((option = getopt(argc, argv, "cd")) != -1) {
         switch (option) {
         case 'c':
-            if (argv[2] != NULL) fn = argv[2];
-            else fn = "client.cfg"; 
+            if (argv[2] != NULL) strcpy(fn, argv[2]);
+            else {
+                printf("ERROR  => No es pot obrir l'arxiu de configuració\n");
+                exit(-1);
+            }
             break;
         case 'd':
             debug = true;
-            fn = "client.cfg";
             break;
         case '?':
             printf("Error en els paràmetres d'entrada.\n");
+            exit(-1);
         default:
             break;
         }
     }
+    //llegim els paràmetres de configuració
     elements = read_parameters(fn, &config_parameters);
     print_config = config_parameters;
     print_data_client(config_parameters, elements);
 
+    //configurem els sockets
     sock_UDP = config_sockets(config_parameters);
-    
     bind_sock(sock_UDP, config_parameters);
     sprintf(buffer, "Inici bucle de servei equip : %s", config_parameters.id);
     print_debug(buffer);
     estat_client = NOT_REGISTERED;
     
+    //loop del registre on un switch determina que ha d'executar segons l'estat en el que ens trobem
     while (estat_client != DISCONNECTED) {
         switch(estat_client) {
             case NOT_REGISTERED:
+                //si el paquet que ens arriba és un REG_REJ, es reinicia el proces de subscripcio
                 if (pdu.tipus == REG_REJ){
                     num_tries = 0;
                     intent_reg += 1;
