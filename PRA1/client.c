@@ -452,11 +452,13 @@ int main(int argc, char *argv[]) {
                     config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
                     a = send_reg_req(pdu, sock_UDP, num_tries, intent_reg);
                 }
+                //enviament del paquet REG_REQ
                 config_pdu_UDP(&pdu, REG_REQ, config_parameters.id, "0000000000", "");
                 a = send_reg_req(pdu, sock_UDP, num_tries, intent_reg);
                 check_package(pdu);
                 break;
             case WAIT_ACK_REG:
+                //rebem el resultat de l'enviament del paquet REG_REQ
                 if (a > 0) {
                     b = recvfrom(sock_UDP, &pdu, sizeof(pdu), 0, (struct sockaddr *)0,(int)0);
                     sprintf(buffer, "Rebut: bytes=%d, paquet=%s, id=%s, id. com.=%s, dades=%s", b, package_name[pdu.tipus], pdu.id_transmissor, pdu.id_comunicacio, pdu.dades);
@@ -466,6 +468,7 @@ int main(int argc, char *argv[]) {
                         perror(argv[0]);
                         exit(-2);
                     }
+                    //canviem l'estat del client
                     check_package(pdu);
                     if(estat_client == WAIT_ACK_REG) {
                         //agafem les dades del packet REG_ACK per a enviar-les al packet REG_INFO
@@ -473,7 +476,7 @@ int main(int argc, char *argv[]) {
                         sprintf(buffer, "%d,%s", config_parameters.local_TCP, config_parameters.elements_str);
 
                         config_pdu_UDP(&pdu, REG_INFO, config_parameters.id, pdu.id_comunicacio, buffer);
-
+                        //enviem un REG_INFO
                         a = sendto(sock_UDP, &pdu, sizeof(struct pdu_UDP), 0, (struct sockaddr*) &addr_server, sizeof(addr_server));
                         sprintf(buffer, "Enviat: bytes=%d, paquet=%s, id=%s, id. com.=%s, dades=%s", a, package_name[pdu.tipus], pdu.id_transmissor, pdu.id_comunicacio, pdu.dades);
                         print_debug(buffer);
@@ -488,6 +491,7 @@ int main(int argc, char *argv[]) {
                 print_msg(buffer);
                 break;
             case WAIT_ACK_INFO:
+                //rebem el resultat de l'enviament del paquet REG_INFO esperant 2t segons
                 c = config_select(sock_UDP, 2 * T);
                 if (c == 0) {
                     estat_client = NOT_REGISTERED;
@@ -510,6 +514,7 @@ int main(int argc, char *argv[]) {
                 print_msg(buffer);
                 break;
             case REGISTERED:
+                //enviem el primer ALIVE
                 config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
                 send_alive(pdu, sock_UDP, config_parameters);
                 check_package(pdu);
@@ -517,6 +522,7 @@ int main(int argc, char *argv[]) {
                 print_msg(buffer);
                 break;
             case SEND_ALIVE:
+                //seguim enviant alives fins que acabi la funció send_alives
                 config_pdu_UDP(&pdu, ALIVE, config_parameters.id, pdu.id_comunicacio, "");
                 pthread_create(&thread_id, NULL, command_stats, NULL);
                 send_alive(pdu, sock_UDP, config_parameters);

@@ -9,6 +9,7 @@ import select
 import time
 import signal
 
+#variables globals
 global server
 global sock_UDP
 global sock_TCP
@@ -24,8 +25,10 @@ IP = 0
 Z = 2
 W = 3
 
+#diccionari per a guardar les dades dels clients autoritzats que es connectin
 clients_autoritzats = {}
 
+#dades
 Package = {
     'REG_REQ': 0xa0,
     'REG_ACK' : 0xa1,
@@ -48,6 +51,7 @@ Estat = {
     'REGISTERED' : 0xf5,
     'SEND_ALIVE' : 0xf6 }
 
+#funcio que retorna un string del paquet que li diguem
 def to_string(msg):
     if msg == Package['REG_REQ']:
         return "REG_REQ"
@@ -88,7 +92,7 @@ def to_string(msg):
     else:
         return "ERROR"
 
-
+#classes per a guardar les dades
 class Server:
     def __init__(self):
         self.id = None
@@ -125,6 +129,7 @@ class pdu_UDP_c(ctypes.Structure):
         self.id_comunicacio = id_comunicacio
         self.dades = dades
 
+#funcio per a llegir la comanda inicial
 def read_command():
     argv = sys.argv
     fs = 'server.cfg'
@@ -140,6 +145,7 @@ def read_command():
         argv = argv[1:]
     return fs, fc
 
+#imprimir la comanda list
 def print_list():
     buffer = 'Llegits {} equips autoritzats en el sistema'.format(str(num_clients))
     print_debug(buffer)
@@ -147,6 +153,7 @@ def print_list():
     for i in clients_autoritzats:
         print(i, "  ", clients_autoritzats[i].id_comunicacio, "  ", clients_autoritzats[i].ip, "  ", to_string(clients_autoritzats[i].estat), "  ", clients_autoritzats[i].elements)
 
+#traduccio de C a python
 def UDP_decoder(msg):
     tipus = msg.tipus
     id_transmissor = msg.id_transmissor.decode()
@@ -154,6 +161,7 @@ def UDP_decoder(msg):
     dades = msg.dades.decode()
     return pdu_UDP(tipus, id_transmissor, id_comunicacio, dades)
 
+#traduccio de python a C
 def UDP_encoder(msg):
     tipus = msg.tipus
     id_transmissor = str(msg.id_transmissor).encode()
@@ -161,15 +169,18 @@ def UDP_encoder(msg):
     dades = str(msg.dades).encode()
     return pdu_UDP_c(tipus, id_transmissor, id_comunicacio, dades)
 
+#print per als missatges de debug
 def print_debug(msg):
     t = time.strftime("%H:%M:%S: ")
     if(d):
         print(t, "DEBUG  =>  ", msg)
 
+#print per als missatges en general
 def print_msg(msg):
     t = time.strftime("%H:%M:%S: ")
     print(t, "MSG  =>  ", msg)
 
+#llegir la configuracio del servidor
 def read_server_config(f):
     fs = open(f, 'r')
     x = 0
@@ -183,6 +194,7 @@ def read_server_config(f):
             server.TCPport = values[1][:-1]
         x += 1
         
+#llegir quins clients estan autoritzats
 def read_clients_file(f):
     fs = open(f, 'r')
     for line in fs:
@@ -190,9 +202,11 @@ def read_clients_file(f):
         global num_clients
         num_clients += 1
 
+#revisio del paquet info_reg
 def check_info_reg(pdu):
     return pdu.id_comunicacio == '0000000000' and pdu.dades == ''
-  
+
+#funcio per al proces wait info
 def wait_info(sock, id_comunicacio, id_transmissor):
     r, _, _ = select.select([sock], [], [], Z)
     if r:
@@ -209,6 +223,7 @@ def wait_info(sock, id_comunicacio, id_transmissor):
             if str(recived_pdu.id_comunicacio) == str(id_comunicacio) and str(recived_pdu.id_transmissor) == str(id_transmissor):
                 clients_autoritzats[id_transmissor].estat = Estat['REGISTERED']
                 recived_pdu = pdu_UDP(Package['INFO_ACK'], server.id, id_comunicacio, server.TCPport)
+                #creem un nou socket per a seguir gestionan el registre del client
                 sock.sendto(UDP_encoder(recived_pdu), addr)
                 buffer = "Enviat: bytes= 84 , comanda= {} , Id.= {} , Id. Com.= {} , Dades= {}".format(to_string(recived_pdu.tipus), recived_pdu.id_transmissor, recived_pdu.id_comunicacio, recived_pdu.dades)
                 print_debug(buffer)
@@ -228,6 +243,7 @@ def wait_info(sock, id_comunicacio, id_transmissor):
             clients_autoritzats[recived_pdu.id_transmissor].estat = Estat['DISCONNECTED']
             exit(-1)
 
+#funcio per a enviar els alives
 def send_alives(sock, id_comunicacio, id_transmissor, recived_pdu, addr):
     if recived_pdu.tipus == Package['ALIVE'] and (clients_autoritzats[recived_pdu.id_transmissor].estat == Estat['REGISTERED'] or clients_autoritzats[recived_pdu.id_transmissor].estat == Estat['SEND_ALIVE']):
         if str(recived_pdu.id_comunicacio) == str(id_comunicacio) and str(recived_pdu.id_transmissor) == str(id_transmissor) and str(recived_pdu.dades) == '':
@@ -251,7 +267,7 @@ def send_alives(sock, id_comunicacio, id_transmissor, recived_pdu, addr):
         clients_autoritzats[recived_pdu.id_transmissor].estat = Estat['DISCONNECTED']
         exit(-1)
 
-
+#funcio que tramita els paquets que arriben pel primer socket
 def UDP_process(info, addr):
     info = pdu_UDP_c.from_buffer_copy(info)
     recived_pdu = UDP_decoder(info)
